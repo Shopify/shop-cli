@@ -1,0 +1,20 @@
+{
+  "name": "shop",
+  "version": "1.0.0",
+  "description": "CLI for searching, shopping, and managing orders via Shop (shop.app)",
+  "type": "module",
+  "bin": {
+    "shop": "./bin/shop.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "SKILL.md"
+  ],
+  "scripts": {
+    "test": "node --experimental-test-module-mocks --test test/*.test.mjs test/commands/*.test.mjs"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  }
+}
