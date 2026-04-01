@@ -1,0 +1,175 @@
+export const sampleOrder = {
+  __typename: 'Order',
+  uuid: 'order-uuid-123',
+  name: 'Order #1001',
+  orderNumber: '1001',
+  createdAt: '2025-03-01T12:00:00Z',
+  updatedAt: '2025-03-02T12:00:00Z',
+  totalPrice: { amount: '49.99', currencyCode: 'USD' },
+  effectiveTotalPrice: { amount: '49.99', currencyCode: 'USD' },
+  totalRefunded: { amount: '0', currencyCode: 'USD' },
+  deliveryStatus: 'DELIVERED',
+  displayStatus: 'Delivered',
+  deliveryType: 'SHIPPING',
+  canBuyAgain: true,
+  shop: { name: 'Cool Store', myshopifyDomain: 'coolstore.myshopify.com', websiteUrl: 'https://coolstore.myshopify.com?utm_source=shop_app' },
+  etaInfo: { formattedEta: 'Mar 5', estimatedTimeOfDelivery: '2025-03-05T00:00:00Z' },
+  lineItems: {
+    nodes: [
+      { title: 'Widget', quantity: 2, shopifyProductId: '99991', shopifyVariantId: '11111' },
+      { title: 'Gadget', quantity: 1, shopifyProductId: '99992', shopifyVariantId: '22222' },
+    ],
+  },
+  trackers: {
+    nodes: [
+      {
+        trackingCode: '1Z999AA10123456784',
+        trackingUrl: 'https://track.example.com/1Z999AA10123456784',
+        status: 'DELIVERED',
+        carrierInfo: { name: 'UPS' },
+        etaInfo: { formattedEta: 'Mar 5' },
+      },
+    ],
+  },
+  shippingAddress: {
+    address1: '123 Main St',
+    address2: 'Apt 4',
+    city: 'Springfield',
+    zone: 'IL',
+    country: 'US',
+    postalCode: '62704',
+  },
+  startReturnUrl: 'https://coolstore.myshopify.com/returns/start/123',
+  statusPageUrl: 'https://coolstore.myshopify.com/status/123',
+  externalOrderUrl: 'https://coolstore.myshopify.com/orders/123',
+};
+
+export const minimalOrder = {
+  __typename: 'Order',
+  uuid: 'order-uuid-minimal',
+  orderNumber: '1002',
+  createdAt: '2025-02-15T08:00:00Z',
+  totalPrice: { amount: '10.00', currencyCode: 'USD' },
+  effectiveTotalPrice: { amount: '10.00', currencyCode: 'USD' },
+  shop: { name: 'Basic Shop' },
+  lineItems: { nodes: [] },
+};
+
+export const sampleTracker = {
+  __typename: 'Tracker',
+  id: 'tracker-id-789',
+  name: 'My Package',
+  customName: 'Birthday Gift',
+  sellerName: 'Amazon',
+  trackingCode: '9400111899223456789012',
+  trackingUrl: 'https://tools.usps.com/go/TrackConfirmAction?tLabels=9400111899223456789012',
+  status: 'IN_TRANSIT',
+  carrierInfo: { name: 'USPS' },
+  etaInfo: { formattedEta: 'Mar 10', estimatedTimeOfDelivery: '2025-03-10T00:00:00Z' },
+  createdAt: '2025-03-03T10:00:00Z',
+  updatedAt: '2025-03-04T10:00:00Z',
+  deliveredAt: null,
+  emailId: 'email-abc',
+};
+
+export const deliveredTracker = {
+  __typename: 'Tracker',
+  id: 'tracker-delivered',
+  name: 'Delivered Pkg',
+  customName: null,
+  sellerName: null,
+  trackingCode: 'DLV123',
+  trackingUrl: null,
+  status: 'DELIVERED',
+  carrierInfo: { name: 'FedEx' },
+  etaInfo: null,
+  createdAt: '2025-02-20T10:00:00Z',
+  updatedAt: '2025-02-25T10:00:00Z',
+  deliveredAt: '2025-02-25T14:00:00Z',
+  emailId: null,
+};
+
+export const minimalTracker = {
+  __typename: 'Tracker',
+  id: 'tracker-minimal',
+};
+
+export const ordersForSpending = [
+  {
+    __typename: 'Order',
+    uuid: 'spend-1',
+    orderNumber: '2001',
+    createdAt: '2025-01-10T12:00:00Z',
+    totalPrice: { amount: '100.00', currencyCode: 'USD' },
+    shop: { name: 'Store A', myshopifyDomain: 'store-a.myshopify.com' },
+    lineItems: { nodes: [{ title: 'Item A', quantity: 1 }] },
+  },
+  {
+    __typename: 'Order',
+    uuid: 'spend-2',
+    orderNumber: '2002',
+    createdAt: '2025-02-05T12:00:00Z',
+    totalPrice: { amount: '250.50', currencyCode: 'USD' },
+    shop: { name: 'Store B', myshopifyDomain: 'store-b.myshopify.com' },
+    lineItems: { nodes: [{ title: 'Item B', quantity: 2 }] },
+  },
+  {
+    __typename: 'Order',
+    uuid: 'spend-3',
+    orderNumber: '2003',
+    createdAt: '2025-03-01T12:00:00Z',
+    totalPrice: { amount: '75.25', currencyCode: 'USD' },
+    shop: { name: 'Store A', myshopifyDomain: 'store-a.myshopify.com' },
+    lineItems: { nodes: [{ title: 'Item C', quantity: 3 }] },
+  },
+  {
+    __typename: 'Order',
+    uuid: 'spend-4',
+    orderNumber: '2004',
+    createdAt: '2025-03-05T12:00:00Z',
+    totalPrice: { amount: '50.00', currencyCode: 'USD' },
+    totalRefunded: { amount: '50.00', currencyCode: 'USD' },
+    shop: { name: 'Store B', myshopifyDomain: 'store-b.myshopify.com' },
+    lineItems: { nodes: [{ title: 'Returned Item', quantity: 1 }] },
+  },
+  {
+    __typename: 'Order',
+    uuid: 'spend-5',
+    orderNumber: '2005',
+    createdAt: '2025-03-06T12:00:00Z',
+    totalPrice: { amount: '80.00', currencyCode: 'USD' },
+    totalRefunded: { amount: '20.00', currencyCode: 'USD' },
+    shop: { name: 'Store A', myshopifyDomain: 'store-a.myshopify.com' },
+    lineItems: { nodes: [{ title: 'Partial Refund Item', quantity: 1 }] },
+  },
+];
+
+export const ordersForFiltering = [
+  {
+    __typename: 'Order',
+    uuid: 'filter-1',
+    orderNumber: '3001',
+    createdAt: '2025-01-15T00:00:00Z',
+    deliveryStatus: 'DELIVERED',
+    displayStatus: 'Delivered',
+    status: 'DELIVERED',
+  },
+  {
+    __typename: 'Order',
+    uuid: 'filter-2',
+    orderNumber: '3002',
+    createdAt: '2025-02-15T00:00:00Z',
+    deliveryStatus: 'IN_TRANSIT',
+    displayStatus: 'In Transit',
+    status: 'IN_TRANSIT',
+  },
+  {
+    __typename: 'Order',
+    uuid: 'filter-3',
+    orderNumber: '3003',
+    createdAt: '2025-03-15T00:00:00Z',
+    deliveryStatus: null,
+    displayStatus: null,
+    status: 'CONFIRMED',
+  },
+];
