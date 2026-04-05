@@ -1,4 +1,3 @@
-import { existsSync, unlinkSync } from 'node:fs';
 import {
   loadTokens,
   saveTokens,
@@ -8,7 +7,6 @@ import {
   validateToken,
   requestDeviceAuthorization,
   pollForDeviceToken,
-  TOKENS_FILE,
 } from '../auth.mjs';
 
 async function authInit() {
@@ -138,15 +136,6 @@ async function authSave(opts) {
   }
 }
 
-function authLogout() {
-  if (!existsSync(TOKENS_FILE)) {
-    console.log('Not logged in.');
-    return;
-  }
-  unlinkSync(TOKENS_FILE);
-  console.log('Logged out — tokens removed.');
-}
-
 export function authCommand(program) {
   const auth = program
     .command('auth')
@@ -172,9 +161,4 @@ export function authCommand(program) {
     .description('Save token JSON from file or stdin')
     .option('--file <path>', 'Read tokens from file instead of stdin')
     .action(authSave);
-
-  auth
-    .command('logout')
-    .description('Remove saved tokens')
-    .action(authLogout);
 }

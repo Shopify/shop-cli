@@ -24,6 +24,20 @@ const mockValidateToken = mock.fn(async () => nextValidateToken);
 const mockRequestDeviceAuth = mock.fn(async () => nextDeviceAuth);
 const mockPollForDeviceToken = mock.fn(async () => nextPollResult);
 
+let fsExistsResult = true;
+const mockExistsSync = mock.fn(() => fsExistsResult);
+const mockUnlinkSync = mock.fn(() => {});
+
+mock.module('node:fs', {
+  namedExports: {
+    existsSync: mockExistsSync,
+    unlinkSync: mockUnlinkSync,
+    readFileSync: (await import('node:fs')).readFileSync,
+    writeFileSync: (await import('node:fs')).writeFileSync,
+    mkdirSync: (await import('node:fs')).mkdirSync,
+  },
+});
+
 mock.module('../../lib/auth.mjs', {
   namedExports: {
     loadTokens: mockLoadTokens,
@@ -34,6 +48,7 @@ mock.module('../../lib/auth.mjs', {
     validateToken: mockValidateToken,
     requestDeviceAuthorization: mockRequestDeviceAuth,
     pollForDeviceToken: mockPollForDeviceToken,
+    TOKENS_FILE: '/fake/.shop/tokens.json',
   },
 });
 
@@ -283,5 +298,51 @@ describe('auth refresh', () => {
     );
 
     assert.equal(exitCode, 1);
+  });
+});
+
+// ── auth logout ────────────────────────────────────────────────────
+describe('auth logout', () => {
+  let program;
+  let logMock;
+
+  beforeEach(() => {
+    fsExistsResult = true;
+    mockExistsSync.mock.resetCalls();
+    mockUnlinkSync.mock.resetCalls();
+
+    program = new Command();
+    program.exitOverride();
+    program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+    authCommand(program);
+
+    logMock = mock.method(console, 'log', () => {});
+  });
+
+  afterEach(() => {
+    restoreMethodMocks();
+  });
+
+  it('removes tokens file and prints confirmation', async () => {
+    await program.parseAsync(['node', 'shop', 'auth', 'logout']);
+
+    assert.equal(mockExistsSync.mock.callCount(), 1);
+    assert.equal(mockUnlinkSync.mock.callCount(), 1);
+    assert.equal(mockUnlinkSync.mock.calls[0].arguments[0], '/fake/.shop/tokens.json');
+    assert.ok(logMock.mock.calls.some(
+      call => call.arguments[0].includes('Logged out'),
+    ));
+  });
+
+  it('prints not logged in when no tokens file exists', async () => {
+    fsExistsResult = false;
+    mockExistsSync.mock.mockImplementation(() => false);
+
+    await program.parseAsync(['node', 'shop', 'auth', 'logout']);
+
+    assert.equal(mockUnlinkSync.mock.callCount(), 0);
+    assert.ok(logMock.mock.calls.some(
+      call => call.arguments[0].includes('Not logged in'),
+    ));
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "shop",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "CLI for searching, shopping, and managing orders via Shop (shop.app)",
   "type": "module",
   "bin": {
@@ -12,8 +12,7 @@
     "SKILL.md"
   ],
   "scripts": {
-    "test": "node --experimental-test-module-mocks --test test/*.test.mjs test/commands/*.test.mjs",
-    "preuninstall": "node -e \"try{require('fs').unlinkSync(require('path').join(require('os').homedir(),'.shop','tokens.json'))}catch{}\""
+    "test": "node --experimental-test-module-mocks --test test/*.test.mjs test/commands/*.test.mjs"
   },
   "dependencies": {
     "commander": "^13.1.0"

@@ -21,6 +21,7 @@ A CLI for searching products, managing orders, and shopping across all online st
 | `shop auth status` | No | Check current authentication status |
 | `shop auth refresh` | No | Force a token refresh |
 | `shop auth save` | No | Import tokens from a file or stdin |
+| `shop auth logout` | No | Remove saved tokens |
 
 All commands support `--json` for structured JSON output. Default output is markdown.
 
