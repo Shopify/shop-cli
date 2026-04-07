@@ -88,7 +88,7 @@ That's it. Everything else uses Node.js built-ins (`fs`, `path`, `https`, `crypt
 ## Installation
 
 ```sh
-npm install -g shop-1.0.0.tgz
+pnpm install -g shop-1.0.0.tgz
 shop --version
 ```
 

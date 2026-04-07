@@ -9,7 +9,7 @@ metadata:
 # Install
 
 ```
-npm install -g <arrive-server-url>/shop-1.0.0.tgz
+pnpm install -g <arrive-server-url>/shop-1.0.0.tgz
 ```
 
 After install, verify with `shop --version`.
