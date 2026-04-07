@@ -9,7 +9,7 @@ metadata:
 # Install
 
 ```
-npm install -g https://shop.app/install.tgz
+pnpm install -g https://shop.app/install.tgz
 ```
 
 After install, verify with `shop --version`.
