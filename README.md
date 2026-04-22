@@ -62,7 +62,7 @@ This CLI uses the **OAuth 2.0 Device Authorization Grant** ([RFC 8628](https://d
 6. On expiry, the CLI auto-refreshes using the refresh_token
 ```
 
-**Scope:** `agent:access email openid orders profile`
+**Scope:** `agent:access email openid orders profile pay:wallet_tokens`
 
 **Token storage:** `~/.shop/tokens.json` with `0600` permissions. Contains the access token, refresh token, expiry timestamp, and cached userinfo.
 
