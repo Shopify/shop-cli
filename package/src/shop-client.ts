@@ -1,0 +1,537 @@
+import {
+  ACCESS_TOKEN_ACCOUNT,
+  DEFAULT_COUNTRY,
+  DEFAULT_PROFILE_URL,
+  GLOBAL_CATALOG_MCP_URL,
+  REFRESH_TOKEN_ACCOUNT,
+  UCP_PROFILE,
+} from './constants.js'
+import { ShopCliError } from './errors.js'
+import { formBody, jsonHeaders, parseJsonResponse, parseTextResponse } from './http.js'
+import { AuthClient } from './auth.js'
+import { getCountry, getOrCreateDeviceId } from './storage.js'
+import type { FetchLike, JsonObject, SecretStore } from './types.js'
+
+export interface ShopCatalogClientOptions {
+  fetch?: FetchLike
+  store: SecretStore
+  profileUrl?: string
+  country?: string
+  auth?: AuthClient
+}
+
+export interface CatalogSearchInput {
+  query?: string
+  like?: unknown[]
+  limit?: number
+  country?: string
+  region?: string
+  postalCode?: string
+  currency?: string
+  language?: string
+  intent?: string
+  minPrice?: number
+  maxPrice?: number
+  available?: boolean
+  condition?: string[]
+  shipsFrom?: string
+  shipsTo?: { country: string; region?: string; postalCode?: string }
+  shopIds?: string[]
+  categories?: string[]
+  view?: string
+}
+
+export interface CatalogLookupInput {
+  ids: string[]
+  country?: string
+  available?: boolean
+  condition?: string[]
+  shipsTo?: { country: string; region?: string; postalCode?: string }
+  view?: string
+}
+
+export interface CatalogGetProductInput {
+  id: string
+  selected?: Array<{ name: string; label: string }>
+  preferences?: string[]
+  country?: string
+  available?: boolean
+  condition?: string[]
+  view?: string
+}
+
+export interface CheckoutCreateInput {
+  shopDomain: string
+  variantId?: string
+  quantity?: number
+  checkout?: JsonObject
+  buyerIp?: string
+}
+
+export interface CheckoutUpdateInput {
+  shopDomain: string
+  checkoutId: string
+  checkout: JsonObject
+  buyerIp?: string
+}
+
+export interface CheckoutCompleteInput {
+  shopDomain: string
+  checkoutId: string
+  paymentToken: string
+  idempotencyKey: string
+  buyerIp?: string
+}
+
+export interface OrderSearchInput {
+  type: 'recent' | 'tracking' | 'order_info' | 'returns' | 'reorder'
+  query?: string
+  dateFrom?: string
+  dateTo?: string
+  cursor?: string
+}
+
+export class ShopCatalogClient {
+  private readonly fetchImpl: FetchLike
+  private readonly auth: AuthClient
+  private readonly profileUrl: string
+  // Explicit per-invocation country override (e.g. global --country). Undefined when
+  // not explicitly set, so the stored preference (then DEFAULT_COUNTRY) is used instead.
+  private readonly explicitCountry?: string
+  private readonly ucpTokens = new Map<string, string>()
+
+  constructor(private readonly options: ShopCatalogClientOptions) {
+    this.fetchImpl = options.fetch ?? fetch
+    this.auth = options.auth ?? new AuthClient({ fetch: this.fetchImpl, store: options.store })
+    this.profileUrl = options.profileUrl ?? DEFAULT_PROFILE_URL
+    this.explicitCountry = options.country
+  }
+
+  async searchCatalog(input: CatalogSearchInput): Promise<unknown> {
+    // search_catalog only enforces filters.ships_to when it matches
+    // context.address_country; otherwise the destination filter is silently
+    // ignored and products that don't ship to the destination leak through.
+    // So for search, align the context country to the ships-to destination
+    // when the buyer didn't explicitly choose one. (lookup_catalog and
+    // get_product enforce ships_to regardless of context, and forcing context
+    // on them hides otherwise-valid products, so they are left unaligned.)
+    const catalog = await this.catalogInput(input, { alignCountryToShipsTo: true })
+    if (!catalog.query && !catalog.like) {
+      throw new ShopCliError('Search requires a query, --like-id, or --image')
+    }
+    return this.callMcp(GLOBAL_CATALOG_MCP_URL, 'search_catalog', { catalog })
+  }
+
+  async lookupCatalog(input: CatalogLookupInput): Promise<unknown> {
+    if (input.ids.length === 0) throw new ShopCliError('At least one id is required')
+    const catalog = await this.catalogInput(input)
+    return this.callMcp(GLOBAL_CATALOG_MCP_URL, 'lookup_catalog', { catalog })
+  }
+
+  async getProduct(input: CatalogGetProductInput): Promise<unknown> {
+    const catalog = await this.catalogInput(input)
+    return this.callMcp(GLOBAL_CATALOG_MCP_URL, 'get_product', { catalog })
+  }
+
+  async createCheckout(input: CheckoutCreateInput): Promise<unknown> {
+    const shopDomain = assertValidShopDomain(input.shopDomain)
+    const token = await this.getUcpToken(shopDomain)
+    const buyerIp = await this.getBuyerIp(input.buyerIp)
+    const checkout: JsonObject = { ...(input.checkout ?? {}) }
+    if (input.variantId) {
+      checkout.line_items = [
+        {
+          quantity: input.quantity ?? 1,
+          item: { id: normalizeVariantGid(input.variantId) },
+        },
+      ]
+    }
+
+    return unwrapMcpResult(await this.callShopMcp(shopDomain, 'create_checkout', { checkout }, token, buyerIp))
+  }
+
+  async updateCheckout(input: CheckoutUpdateInput): Promise<unknown> {
+    const shopDomain = assertValidShopDomain(input.shopDomain)
+    const token = await this.getUcpToken(shopDomain)
+    const buyerIp = await this.getBuyerIp(input.buyerIp)
+    return unwrapMcpResult(
+      await this.callShopMcp(
+        shopDomain,
+        'update_checkout',
+        {
+          id: input.checkoutId,
+          checkout: input.checkout,
+        },
+        token,
+        buyerIp,
+      ),
+    )
+  }
+
+  async completeCheckout(input: CheckoutCompleteInput): Promise<unknown> {
+    const shopDomain = assertValidShopDomain(input.shopDomain)
+    const token = await this.getUcpToken(shopDomain)
+    const buyerIp = await this.getBuyerIp(input.buyerIp)
+    return unwrapMcpResult(
+      await this.callShopMcp(
+        shopDomain,
+        'complete_checkout',
+        {
+          id: input.checkoutId,
+          checkout: {
+            payment: {
+              instruments: [
+                {
+                  id: 'instrument-1',
+                  handler_id: 'shop_pay',
+                  type: 'shop_pay',
+                  selected: true,
+                  credential: {
+                    type: 'shop_token',
+                    token: input.paymentToken,
+                  },
+                },
+              ],
+            },
+          },
+        },
+        token,
+        buyerIp,
+        {
+          'idempotency-key': input.idempotencyKey,
+        },
+      ),
+    )
+  }
+
+  async searchOrders(input: OrderSearchInput): Promise<unknown> {
+    if (input.type === 'recent' && input.query) throw new ShopCliError('recent order search does not accept query')
+    if (input.type !== 'recent' && !input.query) throw new ShopCliError(`${input.type} order search requires query`)
+    const accessToken = await this.requireAccessToken()
+    const deviceId = await getOrCreateDeviceId(this.options.store)
+    const params = new URLSearchParams({ type: input.type })
+    if (input.query) params.set('query', input.query)
+    if (input.dateFrom) params.set('dateFrom', input.dateFrom)
+    if (input.dateTo) params.set('dateTo', input.dateTo)
+    if (input.cursor) params.set('cursor', input.cursor)
+
+    const response = await this.authenticatedShopFetch(`https://shop.app/agents/orderSearch?${params.toString()}`, {
+      accessToken,
+      deviceId,
+      label: 'Search orders',
+    })
+    // The orderSearch endpoint responds with text/markdown, not JSON, so return
+    // the markdown summary verbatim. (Parsing it as JSON silently dropped every
+    // result and emitted an empty `{ orders: [] }`.)
+    return parseTextResponse(response, 'Search orders', 'No matching orders found.')
+  }
+
+  async status(): Promise<unknown> {
+    const accessToken = await this.auth.getValidAccessToken()
+    if (!accessToken) return { authenticated: false }
+    const user = await this.auth.validate(accessToken)
+    return { authenticated: true, user }
+  }
+
+  async login(): Promise<unknown> {
+    await this.auth.login()
+    return this.status()
+  }
+
+  private async catalogInput(
+    input: CatalogSearchInput | CatalogLookupInput | CatalogGetProductInput,
+    opts: { alignCountryToShipsTo?: boolean } = {},
+  ): Promise<JsonObject> {
+    const shipsTo = 'shipsTo' in input ? input.shipsTo : undefined
+    const shipsToCountry = shipsTo?.country
+    // Precedence: per-command --country (input.country) > explicit global --country
+    // (this.explicitCountry) > ships-to destination (search only) > stored
+    // preference > DEFAULT_COUNTRY. The ships-to step is what makes search
+    // honor the destination filter (see searchCatalog).
+    const explicitCountry = input.country ?? this.explicitCountry
+    const alignedToShipsTo = explicitCountry === undefined && opts.alignCountryToShipsTo ? shipsToCountry : undefined
+    const country =
+      explicitCountry ?? alignedToShipsTo ?? (await getCountry(this.options.store, DEFAULT_COUNTRY))
+    const catalog: JsonObject = {}
+
+    if ('query' in input && input.query) catalog.query = input.query
+    if ('like' in input && input.like) catalog.like = input.like
+    if ('ids' in input) catalog.ids = input.ids
+    if ('id' in input) catalog.id = input.id
+    if ('selected' in input && input.selected) catalog.selected = input.selected
+    if ('preferences' in input && input.preferences) catalog.preferences = input.preferences
+    // Default to the compact response shape to trim the upstream payload; an
+    // explicit --view always wins.
+    catalog.view = ('view' in input && input.view) || 'compact'
+
+    const context: JsonObject = { address_country: country }
+    if ('region' in input && input.region) context.address_region = input.region
+    if ('postalCode' in input && input.postalCode) context.postal_code = input.postalCode
+    // When we aligned the context to the ships-to destination, propagate the
+    // ships-to region/postal too (if the caller didn't set its own), since the
+    // catalog enriches shipping eligibility from a matching context.
+    if (alignedToShipsTo !== undefined && shipsTo) {
+      if (!('region' in input && input.region) && shipsTo.region) context.address_region = shipsTo.region
+      if (!('postalCode' in input && input.postalCode) && shipsTo.postalCode)
+        context.postal_code = shipsTo.postalCode
+    }
+    if ('currency' in input && input.currency) context.currency = input.currency
+    if ('language' in input && input.language) context.language = input.language
+    if ('intent' in input && input.intent) context.intent = input.intent
+    catalog.context = context
+
+    const filters: JsonObject = {}
+    if ('limit' in input && input.limit) catalog.pagination = { limit: input.limit }
+    // Availability filter is tri-state:
+    //   - property absent (direct client call without specifying) -> default to available-only
+    //   - true/false -> restrict to available / unavailable respectively
+    //   - present but undefined (the --include-unavailable signal) -> omit, returning both
+    if ('available' in input) {
+      if (input.available !== undefined) filters.available = input.available
+    } else {
+      filters.available = true
+    }
+    if ('minPrice' in input || 'maxPrice' in input) {
+      const price: JsonObject = {}
+      if ('minPrice' in input && input.minPrice !== undefined) price.min = input.minPrice
+      if ('maxPrice' in input && input.maxPrice !== undefined) price.max = input.maxPrice
+      filters.price = price
+    }
+    if ('condition' in input && input.condition?.length) filters.condition = input.condition
+    if ('shipsFrom' in input && input.shipsFrom) filters.ships_from = { country: input.shipsFrom }
+    if ('shipsTo' in input && input.shipsTo) {
+      const shipsTo: JsonObject = { country: input.shipsTo.country }
+      if (input.shipsTo.region) shipsTo.region = input.shipsTo.region
+      if (input.shipsTo.postalCode) shipsTo.postal_code = input.shipsTo.postalCode
+      filters.ships_to = shipsTo
+    }
+    if ('shopIds' in input && input.shopIds?.length) filters.shop_ids = input.shopIds
+    if ('categories' in input && input.categories?.length) {
+      filters.categories = input.categories.map((id) => ({ id }))
+    }
+    if (Object.keys(filters).length > 0) catalog.filters = filters
+
+    return catalog
+  }
+
+  private async callMcp(
+    endpoint: string,
+    toolName: string,
+    args: JsonObject,
+    headers: Record<string, string> = {},
+    meta: JsonObject = {},
+  ): Promise<unknown> {
+    const response = await this.fetchImpl(endpoint, {
+      method: 'POST',
+      headers: jsonHeaders(headers),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        id: 1,
+        params: {
+          name: toolName,
+          arguments: {
+            meta: {
+              'ucp-agent': {
+              profile: isCatalogTool(toolName) ? this.profileUrl : UCP_PROFILE,
+              },
+              ...meta,
+            },
+            ...args,
+          },
+        },
+      }),
+    })
+    const json = await parseJsonResponse<JsonObject>(response, `Call ${toolName}`)
+    if (json.error) throw new ShopCliError(`MCP ${toolName} returned an error`, { details: json.error })
+    return json
+  }
+
+  private async callShopMcp(
+    shopDomain: string,
+    toolName: string,
+    args: JsonObject,
+    token: string,
+    buyerIp: string,
+    meta: JsonObject = {},
+  ): Promise<unknown> {
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'Shopify-Buyer-Ip': buyerIp,
+    }
+    try {
+      return await this.callMcp(`https://${shopDomain}/api/ucp/mcp`, toolName, args, headers, meta)
+    } catch (error) {
+      if (error instanceof ShopCliError && error.status === 401) {
+        this.ucpTokens.delete(shopDomain)
+        const freshToken = await this.getUcpToken(shopDomain)
+        return this.callMcp(
+          `https://${shopDomain}/api/ucp/mcp`,
+          toolName,
+          args,
+          {
+            Authorization: `Bearer ${freshToken}`,
+            'Shopify-Buyer-Ip': buyerIp,
+          },
+          meta,
+        )
+      }
+      if (error instanceof ShopCliError && error.status === 429) {
+        await sleep(1000)
+        return this.callMcp(`https://${shopDomain}/api/ucp/mcp`, toolName, args, headers, meta)
+      }
+      throw error
+    }
+  }
+
+  private async authenticatedShopFetch(
+    url: string,
+    options: { accessToken: string; label: string; deviceId?: string },
+  ): Promise<Response> {
+    const buildInit = (accessToken: string): RequestInit => ({
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        ...(options.deviceId ? { 'x-device-id': options.deviceId } : {}),
+      },
+    })
+
+    const first = await this.fetchImpl(url, buildInit(options.accessToken))
+    if (first.status === 401) {
+      const refreshed = await this.auth.refreshStoredToken()
+      if (refreshed?.accessToken) return this.fetchImpl(url, buildInit(refreshed.accessToken))
+    }
+    if (first.status === 429) {
+      await sleep(1000)
+      return this.fetchImpl(url, buildInit(options.accessToken))
+    }
+    return first
+  }
+
+  private async getUcpToken(shopDomain: string): Promise<string> {
+    const cached = this.ucpTokens.get(shopDomain)
+    if (cached) return cached
+
+    const accessToken = await this.requireAccessToken()
+    const response = await this.fetchImpl('https://shop.app/oauth/token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formBody({
+        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+        subject_token: accessToken,
+        subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+        resource: `https://${shopDomain}/`,
+        scope: 'ucp:scopes:checkout_session personal_agent',
+        client_id: '5c733ab2-1903-400a-891e-7ba20c09e2a3',
+      }),
+    })
+    const json = await parseJsonResponse<{ access_token?: string }>(response, 'Fetch checkout token')
+    if (!json.access_token) throw new ShopCliError('Checkout token response did not include access_token')
+    this.ucpTokens.set(shopDomain, json.access_token)
+    return json.access_token
+  }
+
+  private async requireAccessToken(): Promise<string> {
+    const valid = await this.auth.getValidAccessToken()
+    if (valid) return valid
+    const stored = await this.options.store.get(ACCESS_TOKEN_ACCOUNT)
+    const refreshToken = await this.options.store.get(REFRESH_TOKEN_ACCOUNT)
+    if (stored && !refreshToken) return stored
+    throw new ShopCliError('Authentication required. Run `shop auth login` first.')
+  }
+
+  // Resolve the buyer's public IP. Prefers an explicit override (--buyer-ip) or the
+  // SHOP_BUYER_IP env var, and only then falls back to the third-party api.ipify.org
+  // lookup. A network failure there surfaces an actionable error pointing at the override.
+  private async getBuyerIp(override?: string): Promise<string> {
+    const explicit = (override ?? process.env.SHOP_BUYER_IP ?? '').trim()
+    if (explicit) return explicit
+
+    let response: Response
+    try {
+      response = await this.fetchImpl('https://api.ipify.org?format=json')
+    } catch (error) {
+      throw new ShopCliError(
+        'Could not determine the buyer public IP from api.ipify.org. Pass --buyer-ip or set SHOP_BUYER_IP.',
+        { details: error instanceof Error ? error.message : error },
+      )
+    }
+    const json = await parseJsonResponse<{ ip?: string }>(response, 'Fetch buyer public IP')
+    if (!json.ip) {
+      throw new ShopCliError(
+        'Buyer public IP response did not include ip. Pass --buyer-ip or set SHOP_BUYER_IP.',
+      )
+    }
+    return json.ip
+  }
+}
+
+const SHOP_DOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
+
+// Only ever transmit Shop authorization and payment material to a bare merchant
+// hostname. Rejects schemes, paths, ports, credentials, whitespace, bare
+// "localhost", and raw IP addresses so a malformed or injected --shop-domain
+// cannot redirect a checkout (and its bearer token / buyer IP) elsewhere.
+function assertValidShopDomain(domain: string): string {
+  const normalized = (domain ?? '').trim().toLowerCase()
+  if (
+    !SHOP_DOMAIN_PATTERN.test(normalized) ||
+    normalized === 'localhost' ||
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)
+  ) {
+    throw new ShopCliError(
+      `Invalid shop domain "${domain}". Provide a bare merchant hostname such as example.myshopify.com (no scheme, path, port, or IP).`,
+    )
+  }
+  return normalized
+}
+
+function normalizeVariantGid(variantId: string): string {
+  if (variantId.startsWith('gid://')) return variantId
+  return `gid://shopify/ProductVariant/${variantId}`
+}
+
+function isCatalogTool(toolName: string): boolean {
+  return toolName === 'search_catalog' || toolName === 'lookup_catalog' || toolName === 'get_product'
+}
+
+function isPlainObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+// Unwrap the MCP JSON-RPC envelope down to the actual tool payload.
+//
+// An MCP tool result looks like:
+//   { jsonrpc, id, result: { content: [{ type: 'text', text: '<json string>' }], structuredContent: {...}, isError } }
+//
+// The same payload is present twice — once as a stringified `content[].text`
+// blob and once as parsed `structuredContent`. We return `structuredContent`
+// when available, otherwise parse the first text block, and only fall back to
+// the raw envelope if neither is usable.
+function unwrapMcpResult(json: unknown): unknown {
+  if (!isPlainObject(json)) return json
+  const result = isPlainObject(json.result) ? json.result : undefined
+  if (!result) return json
+
+  if (isPlainObject(result.structuredContent)) return result.structuredContent
+
+  if (Array.isArray(result.content)) {
+    const textBlock = result.content.find((block) => isPlainObject(block) && block.type === 'text')
+    if (isPlainObject(textBlock) && typeof textBlock.text === 'string') {
+      try {
+        return JSON.parse(textBlock.text)
+      } catch {
+        return textBlock.text
+      }
+    }
+  }
+
+  return result
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}

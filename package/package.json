@@ -1,20 +1,36 @@
 {
-  "name": "shop",
-  "version": "1.0.0",
-  "description": "CLI for searching, shopping, and managing orders via Shop (shop.app)",
+  "name": "@shopify/shop-cli",
+  "version": "0.1.0",
+  "description": "Installable CLI for the Shop personal shopping skill",
   "type": "module",
+  "license": "UNLICENSED",
   "bin": {
-    "shop": "./bin/shop.mjs"
+    "shop": "./dist/bin.js"
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "bin/",
-    "lib/",
-    "SKILL.md"
+    "dist"
   ],
   "scripts": {
-    "test": "node --experimental-test-module-mocks --test test/*.test.mjs test/commands/*.test.mjs"
+    "build": "tsup",
+    "shop": "node dist/bin.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "pack:dry": "npm pack --dry-run"
   },
   "dependencies": {
-    "commander": "^13.1.0"
-  }
+    "commander": "^12.1.0",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.28.0"
 }
