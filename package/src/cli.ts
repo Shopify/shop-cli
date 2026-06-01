@@ -195,7 +195,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .option('--variant-id <id>', 'Product variant ID or gid')
     .option('-q, --quantity <number>', 'Quantity', parseQuantity, 1)
     .option('--checkout-stdin', 'Merge a checkout JSON object read from stdin')
-    .option('--buyer-ip <ip>', 'Buyer public IP (overrides auto-detection via api.ipify.org; or set SHOP_BUYER_IP)')
+    .option('--buyer-ip <ip>', 'Buyer public IP, forwarded to the merchant for checkout fraud/risk checks (auto-detected via api.ipify.org; override here or with SHOP_BUYER_IP)')
     .action(async (options) => {
       await runAction({ stdout, stderr, exit }, async () => {
         const checkout = options.checkoutStdin ? await readJsonFromStdin(deps.stdin ?? process.stdin) : undefined
@@ -218,7 +218,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .requiredOption('--shop-domain <domain>', 'Merchant shop domain')
     .requiredOption('--checkout-id <id>', 'Checkout ID')
     .requiredOption('--checkout-stdin', 'Read checkout update JSON from stdin')
-    .option('--buyer-ip <ip>', 'Buyer public IP (overrides auto-detection via api.ipify.org; or set SHOP_BUYER_IP)')
+    .option('--buyer-ip <ip>', 'Buyer public IP, forwarded to the merchant for checkout fraud/risk checks (auto-detected via api.ipify.org; override here or with SHOP_BUYER_IP)')
     .action(async (options) => {
       await runAction({ stdout, stderr, exit }, async () =>
         resolveClient(deps, program).updateCheckout({
@@ -238,7 +238,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .requiredOption('--payment-token-stdin', 'Read the current checkout payment token from stdin')
     .requiredOption('--idempotency-key <key>', 'Fresh key for this purchase intent')
     .option('--confirm', 'Authorize this purchase after confirming details with the user; required to complete')
-    .option('--buyer-ip <ip>', 'Buyer public IP (overrides auto-detection via api.ipify.org; or set SHOP_BUYER_IP)')
+    .option('--buyer-ip <ip>', 'Buyer public IP, forwarded to the merchant for checkout fraud/risk checks (auto-detected via api.ipify.org; override here or with SHOP_BUYER_IP)')
     .action(async (options) => {
       await runAction({ stdout, stderr, exit }, async () => {
         if (!options.confirm) {

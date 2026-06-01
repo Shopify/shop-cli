@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, it } from 'node:test'
+import { expect, fn } from './harness.js'
 
 import {
   ACCESS_TOKEN_ACCOUNT,
@@ -214,6 +215,27 @@ describe('checkout and orders', () => {
     })
   })
 
+  it('rejects completion when the checkout status is not completed', async () => {
+    const store = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' })
+    const fetchMock = createFetchMock(async (url) => {
+      if (url.endsWith('/userinfo')) return jsonResponse({ sub: 'user-1' })
+      if (url === 'https://shop.app/oauth/token') return jsonResponse({ access_token: 'ucp-jwt' })
+      if (url === 'https://api.ipify.org?format=json') return jsonResponse({ ip: '203.0.113.10' })
+      // Payment never went through: status is still ready_for_complete.
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { status: 'ready_for_complete' } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store })
+
+    await expect(
+      client.completeCheckout({
+        shopDomain: 'example.myshopify.com',
+        checkoutId: 'checkout-1',
+        paymentToken: 'pay-token',
+        idempotencyKey: 'intent-1',
+      }),
+    ).rejects.toThrow(/did not complete.*ready_for_complete/)
+  })
+
   it('searches orders with bearer token and device id', async () => {
     const store = createStore({
       [ACCESS_TOKEN_ACCOUNT]: 'access',
@@ -323,8 +345,8 @@ describe('checkout and orders', () => {
 
   it('supports checkout and orders CLI commands', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const store = createStore({
       [ACCESS_TOKEN_ACCOUNT]: 'access',
       [DEVICE_ID_ACCOUNT]: 'device-1',
@@ -339,7 +361,9 @@ describe('checkout and orders', () => {
       if (url.includes('/agents/orderSearch')) return markdownResponse('## Summary\n\nYour orders.')
       const body = (await readJsonBody(init)) as { params: { name: string } }
       names.push(body.params.name)
-      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: {} } })
+      // complete_checkout must report a completed status to count as a successful purchase.
+      const structuredContent = body.params.name === 'complete_checkout' ? { status: 'completed' } : {}
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent } })
     })
     const base = {
       fetch: fetchMock,
@@ -405,8 +429,8 @@ describe('checkout and orders', () => {
 
   it('refuses to complete checkout without --confirm', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const store = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' })
     const names: string[] = []
     const fetchMock = createFetchMock(async (url, init) => {

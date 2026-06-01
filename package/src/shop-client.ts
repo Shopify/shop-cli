@@ -172,7 +172,7 @@ export class ShopCatalogClient {
     const shopDomain = assertValidShopDomain(input.shopDomain)
     const token = await this.getUcpToken(shopDomain)
     const buyerIp = await this.getBuyerIp(input.buyerIp)
-    return unwrapMcpResult(
+    const result = unwrapMcpResult(
       await this.callShopMcp(
         shopDomain,
         'complete_checkout',
@@ -202,6 +202,13 @@ export class ShopCatalogClient {
         },
       ),
     )
+    // Don't assume the charge went through: verify the returned checkout status.
+    // complete_checkout echoes the checkout, which is only `completed` on a
+    // successful purchase. Any other status (e.g. still `ready_for_complete`,
+    // or a payment failure) means the order did NOT complete, so surface it as
+    // an error with the full payload instead of returning a success-looking blob.
+    assertCheckoutCompleted(result)
+    return result
   }
 
   async searchOrders(input: OrderSearchInput): Promise<unknown> {
@@ -443,9 +450,11 @@ export class ShopCatalogClient {
     throw new ShopCliError('Authentication required. Run `shop auth login` first.')
   }
 
-  // Resolve the buyer's public IP. Prefers an explicit override (--buyer-ip) or the
-  // SHOP_BUYER_IP env var, and only then falls back to the third-party api.ipify.org
-  // lookup. A network failure there surfaces an actionable error pointing at the override.
+  // Resolve the buyer's public IP, forwarded to the merchant as Shopify-Buyer-Ip so
+  // checkout runs the same fraud/risk checks any web checkout does. Prefers an explicit
+  // override (--buyer-ip) or the SHOP_BUYER_IP env var, and only then falls back to the
+  // third-party api.ipify.org lookup. A network failure there surfaces an actionable
+  // error pointing at the override.
   private async getBuyerIp(override?: string): Promise<string> {
     const explicit = (override ?? process.env.SHOP_BUYER_IP ?? '').trim()
     if (explicit) return explicit
@@ -487,6 +496,19 @@ function assertValidShopDomain(domain: string): string {
     )
   }
   return normalized
+}
+
+// Confirm complete_checkout actually completed the purchase. The checkout is
+// only `completed` on success; surface any other status (or a missing one) as
+// an actionable error carrying the full payload so the caller doesn't treat an
+// incomplete or failed checkout as a successful order.
+function assertCheckoutCompleted(result: unknown): void {
+  const status = isPlainObject(result) ? result.status : undefined
+  if (status === 'completed') return
+  throw new ShopCliError(
+    `Checkout did not complete (status: ${typeof status === 'string' ? status : 'unknown'}). The purchase was not confirmed; do not retry without re-verifying the checkout.`,
+    { details: result },
+  )
 }
 
 function normalizeVariantGid(variantId: string): string {

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, it } from 'node:test'
+import { expect, fn } from './harness.js'
 
 import {
   ACCESS_TOKEN_ACCOUNT,
@@ -78,8 +79,8 @@ describe('auth', () => {
   it('supports CLI auth status, login, and logout commands', async () => {
     const { createProgram } = await import('../src/cli.js')
     const store = createStore()
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     let tokenPolls = 0
     const fetchMock = createFetchMock((url) => {
       if (url.endsWith('/userinfo')) {

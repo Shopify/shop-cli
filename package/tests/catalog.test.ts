@@ -2,7 +2,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, it } from 'node:test'
+import { expect, fn } from './harness.js'
 
 import { COUNTRY_ACCOUNT, GLOBAL_CATALOG_MCP_URL } from '../src/constants.js'
 import { ShopCatalogClient } from '../src/shop-client.js'
@@ -195,8 +196,8 @@ describe('global catalog', () => {
 
   it('supports the CLI search command', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const fetchMock = createFetchMock(() =>
       jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } }),
     )
@@ -218,8 +219,8 @@ describe('global catalog', () => {
 
   it('emits raw JSON when --format json is passed', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const fetchMock = createFetchMock(() =>
       jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } }),
     )
@@ -240,8 +241,8 @@ describe('global catalog', () => {
 
   it('reads --image from a file path and base64-encodes it (no large argv)', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     let body: { params: { arguments: { catalog: { like?: unknown[] } } } } | undefined
     const fetchMock = createFetchMock(async (_url, init) => {
       body = (await readJsonBody(init)) as typeof body
@@ -272,8 +273,8 @@ describe('global catalog', () => {
 
   it('never persists --country; only `config set-country` does', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const store = createStore()
     const bodies: Array<{ params: { arguments: { catalog: { context?: { address_country?: string } } } } }> = []
     const fetchMock = createFetchMock(async (_url, init) => {
@@ -315,8 +316,8 @@ describe('global catalog', () => {
 
   it('--include-unavailable omits the availability filter (returns both)', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const bodies: Array<{ params: { arguments: { catalog: { filters?: Record<string, unknown> } } } }> = []
     const fetchMock = createFetchMock(async (_url, init) => {
       bodies.push((await readJsonBody(init)) as (typeof bodies)[number])
@@ -343,8 +344,8 @@ describe('global catalog', () => {
 
   it('rejects out-of-range --limit and non-integer values', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const base = {
       fetch: createFetchMock(() => jsonResponse({})),
       store: createStore(),
@@ -365,8 +366,8 @@ describe('global catalog', () => {
 
   it('supports unified CLI search plus catalog lookup and get-product', async () => {
     const { createProgram } = await import('../src/cli.js')
-    const stdout = { write: vi.fn() }
-    const stderr = { write: vi.fn() }
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
     const names: string[] = []
     const fetchMock = createFetchMock(async (_url, init) => {
       const body = (await readJsonBody(init)) as { params: { name: string } }

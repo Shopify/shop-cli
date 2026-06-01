@@ -1,4 +1,4 @@
-import { vi } from 'vitest'
+import { fn } from './harness.js'
 
 import { MemorySecretStore } from '../src/storage.js'
 import type { FetchLike } from '../src/types.js'
@@ -33,7 +33,7 @@ export function emptyResponse(init: ResponseInit = {}): Response {
 export function createFetchMock(
   handler: (url: string, init: RequestInit) => Response | Promise<Response>,
 ): FetchLike {
-  return vi.fn(async (url, init = {}) => handler(String(url), init)) as unknown as FetchLike
+  return fn(async (url, init = {}) => handler(String(url), init)) as unknown as FetchLike
 }
 
 export async function readJsonBody(init: RequestInit): Promise<unknown> {

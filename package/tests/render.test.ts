@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, it } from 'node:test'
+import { expect } from './harness.js'
 
 import { renderCatalogResult, withUtm } from '../src/render.js'
 
