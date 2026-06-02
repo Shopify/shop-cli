@@ -171,7 +171,7 @@ describe('checkout and orders', () => {
     })
   })
 
-  it('completes checkout with current payment token and idempotency key', async () => {
+  it('completes checkout by echoing the create instrument with its id as the credential token', async () => {
     const store = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' })
     let completeBody: unknown
     const fetchMock = createFetchMock(async (url, init) => {
@@ -186,7 +186,16 @@ describe('checkout and orders', () => {
     await client.completeCheckout({
       shopDomain: 'example.myshopify.com',
       checkoutId: 'checkout-1',
-      paymentToken: 'pay-token',
+      // The exact instrument echoed back by create_checkout: real id, no token yet.
+      instruments: [
+        {
+          id: 'shop_real-instrument-token',
+          handler_id: 'shop_pay',
+          type: 'shop_pay',
+          credential: { type: 'shop_token' },
+          display: { remaining_amount: 10000 },
+        },
+      ],
       idempotencyKey: 'intent-1',
     })
 
@@ -202,9 +211,17 @@ describe('checkout and orders', () => {
             payment: {
               instruments: [
                 {
+                  // The instrument id from create is preserved (not a synthetic
+                  // 'instrument-1'), the instrument is selected, and the
+                  // credential token is set to that same id.
+                  id: 'shop_real-instrument-token',
+                  handler_id: 'shop_pay',
+                  type: 'shop_pay',
+                  selected: true,
+                  display: { remaining_amount: 10000 },
                   credential: {
                     type: 'shop_token',
-                    token: 'pay-token',
+                    token: 'shop_real-instrument-token',
                   },
                 },
               ],
@@ -213,6 +230,22 @@ describe('checkout and orders', () => {
         },
       },
     })
+  })
+
+  it('rejects completion when no instruments are provided', async () => {
+    const client = new ShopCatalogClient({
+      fetch: createFetchMock(() => jsonResponse({})),
+      store: createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' }),
+    })
+
+    await expect(
+      client.completeCheckout({
+        shopDomain: 'example.myshopify.com',
+        checkoutId: 'checkout-1',
+        instruments: [],
+        idempotencyKey: 'intent-1',
+      }),
+    ).rejects.toThrow(/payment instruments/)
   })
 
   it('rejects completion when the checkout status is not completed', async () => {
@@ -230,7 +263,7 @@ describe('checkout and orders', () => {
       client.completeCheckout({
         shopDomain: 'example.myshopify.com',
         checkoutId: 'checkout-1',
-        paymentToken: 'pay-token',
+        instruments: [{ id: 'shop_tok', handler_id: 'shop_pay', type: 'shop_pay' }],
         idempotencyKey: 'intent-1',
       }),
     ).rejects.toThrow(/did not complete.*ready_for_complete/)
@@ -365,6 +398,11 @@ describe('checkout and orders', () => {
       const structuredContent = body.params.name === 'complete_checkout' ? { status: 'completed' } : {}
       return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent } })
     })
+    const createResponseJson = JSON.stringify({
+      id: 'checkout-1',
+      status: 'ready_for_complete',
+      payment: { instruments: [{ id: 'shop_tok', handler_id: 'shop_pay', type: 'shop_pay' }] },
+    })
     const base = {
       fetch: fetchMock,
       store,
@@ -406,7 +444,7 @@ describe('checkout and orders', () => {
       'checkout-1',
       '--checkout-stdin',
     ])
-    await createProgram({ ...base, stdin: stdinFrom('payment-token') }).parseAsync([
+    await createProgram({ ...base, stdin: stdinFrom(createResponseJson) }).parseAsync([
       'node',
       'shop',
       'checkout',
@@ -415,7 +453,7 @@ describe('checkout and orders', () => {
       'example.myshopify.com',
       '--checkout-id',
       'checkout-1',
-      '--payment-token-stdin',
+      '--checkout-stdin',
       '--idempotency-key',
       'intent-1',
       '--confirm',
@@ -425,6 +463,70 @@ describe('checkout and orders', () => {
 
     expect(stderr.write).not.toHaveBeenCalled()
     expect(names).toEqual(['create_checkout', 'create_checkout', 'update_checkout', 'complete_checkout'])
+  })
+
+  it('surfaces UCP checkout messages (final_sale, prop65) above the raw JSON on create', async () => {
+    const { createProgram } = await import('../src/cli.js')
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
+    const store = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' })
+    const fetchMock = createFetchMock(async (url) => {
+      if (url.endsWith('/userinfo')) return jsonResponse({ sub: 'user-1' })
+      if (url === 'https://shop.app/oauth/token') return jsonResponse({ access_token: 'ucp-jwt' })
+      if (url === 'https://api.ipify.org?format=json') return jsonResponse({ ip: '203.0.113.10' })
+      return jsonResponse({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          structuredContent: {
+            id: 'checkout-1',
+            status: 'ready_for_complete',
+            messages: [
+              { type: 'warning', code: 'final_sale', content: 'This item is final sale and cannot be returned.', path: '$.line_items[0]' },
+              {
+                type: 'warning',
+                code: 'prop65',
+                content: 'WARNING: This product can expose you to chemicals known to cause cancer.',
+                presentation: 'disclosure',
+                path: '$.line_items[0]',
+              },
+            ],
+          },
+        },
+      })
+    })
+    const exit = ((code: number) => {
+      throw new Error(`exit ${code}`)
+    }) as never
+
+    await createProgram({
+      fetch: fetchMock,
+      store,
+      stdout,
+      stderr,
+      exit,
+      stdin: stdinFrom('{"email":"buyer@example.com"}'),
+    }).parseAsync([
+      'node',
+      'shop',
+      'checkout',
+      'create',
+      '--shop-domain',
+      'example.myshopify.com',
+      '--variant-id',
+      '123',
+      '--checkout-stdin',
+    ])
+
+    const output = stdout.write.mock.calls.map((call: { arguments: unknown[] }) => String(call.arguments[0])).join('')
+    expect(stderr.write).not.toHaveBeenCalled()
+    expect(output).toContain('Checkout messages')
+    expect(output).toContain('final_sale')
+    expect(output).toContain('This item is final sale and cannot be returned.')
+    expect(output).toContain('prop65')
+    expect(output).toContain('presentation: disclosure')
+    // The full JSON payload is still emitted alongside the surfaced summary.
+    expect(output).toContain('"status": "ready_for_complete"')
   })
 
   it('refuses to complete checkout without --confirm', async () => {
@@ -446,7 +548,14 @@ describe('checkout and orders', () => {
     }) as never
 
     await expect(
-      createProgram({ fetch: fetchMock, store, stdout, stderr, exit, stdin: stdinFrom('payment-token') }).parseAsync([
+      createProgram({
+        fetch: fetchMock,
+        store,
+        stdout,
+        stderr,
+        exit,
+        stdin: stdinFrom('{"payment":{"instruments":[{"id":"shop_tok","handler_id":"shop_pay","type":"shop_pay"}]}}'),
+      }).parseAsync([
         'node',
         'shop',
         'checkout',
@@ -455,7 +564,7 @@ describe('checkout and orders', () => {
         'example.myshopify.com',
         '--checkout-id',
         'checkout-1',
-        '--payment-token-stdin',
+        '--checkout-stdin',
         '--idempotency-key',
         'intent-1',
       ]),
@@ -498,7 +607,7 @@ describe('checkout and orders', () => {
         client.completeCheckout({
           shopDomain: bad,
           checkoutId: 'checkout-1',
-          paymentToken: 'pay-token',
+          instruments: [{ id: 'shop_tok', handler_id: 'shop_pay', type: 'shop_pay' }],
           idempotencyKey: 'intent-1',
         }),
       ).rejects.toThrow('Invalid shop domain')

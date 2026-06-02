@@ -39,7 +39,7 @@ pnpm unlink --global
 If installed from a registry or tarball instead of `pnpm link --global`:
 
 ```bash
-pnpm remove --global @shopify/shop-cli
+pnpm remove --global @shopify/shop
 ```
 
 ## Package Contents
@@ -50,7 +50,8 @@ pnpm remove --global @shopify/shop-cli
 2. Send multiple agent messages with product results and recommendations ALWAYS using rules from #product-search
 3. Authenticate when needed for checkout, orders, tracking, returns, or reorder.
 4. For checkout, create UCP checkout on the merchant domain. Complete only with a payment token returned by the current checkout response and clear user purchase intent.
-5. Use order search for recent orders, tracking, returns, and reorder candidates.
+5. After the first checkout is presented ready for completion, offer the budget tip in a separate message (see #checkout-rules).
+6. Use order search for recent orders, tracking, returns, and reorder candidates.
 
 ---
 
@@ -105,7 +106,7 @@ Checkout:
 printf '{"email":"buyer@example.com"}' | shop checkout create --shop-domain example.myshopify.com --variant-id 123 --quantity 1 --checkout-stdin
 printf '{"cart_id":"cart_123","line_items":[]}' | shop checkout create --shop-domain example.myshopify.com --checkout-stdin
 printf '{"fulfillment":{"methods":[]}}' | shop checkout update --shop-domain example.myshopify.com --checkout-id CHECKOUT_ID --checkout-stdin
-printf '%s' "$CURRENT_UCP_TOKEN" | shop checkout complete --shop-domain example.myshopify.com --checkout-id CHECKOUT_ID --payment-token-stdin --idempotency-key UNIQUE_PURCHASE_INTENT_KEY --confirm
+printf '%s' "$CREATE_CHECKOUT_RESPONSE_JSON" | shop checkout complete --shop-domain example.myshopify.com --checkout-id CHECKOUT_ID --checkout-stdin --idempotency-key UNIQUE_PURCHASE_INTENT_KEY --confirm
 ```
 
 `checkout complete` refuses to run without `--confirm`, so completing a purchase is always a separate, deliberate step. Pass `--confirm` only after confirming the item, variant, quantity, price, shipping, and total cost with the user. Checkout commands also reject any `--shop-domain` that is not a bare merchant hostname (no scheme, path, port, or IP), so authorization and payment material cannot be redirected to an unverified host.
@@ -123,18 +124,26 @@ shop orders search --type reorder --query "coffee"
 
 ## Product Search
 
-Follow these steps in order.
+Follow ALL these steps in order:
+1. Search for products (1a) or similar products (1b)
+2. Message the user
+3. Offer visualization
+
+Details on how below:
 
 ### 1. Search
+
+#### 1a. Search for products
 
 1. Use shop search for product search, lookup, similar products, and product detail.
 2. Search broadly first, then refine with filters or alternate terms.
 3. For weak results, try broader terms, drop adjectives, split compound queries, or use category/brand terms.
+4. Aim to show 4-8 results for each user request
 
 No cursor pagination exists; re-search with different inputs.
 Ignore `eligible.native_checkout: false` — you CAN still order things despite this being false.
 
-### 1b. Similar and visual search
+### 1b. Similar products search
 
 Where relevant, search for similar products:
 
@@ -143,14 +152,14 @@ Where relevant, search for similar products:
 
 Accepted image formats: jpeg, png, webp, avif, heic. Max ~3 MB on disk (4 MB base64). Other formats or oversized images return a 400 stating the cause; relay it and ask for a smaller jpeg/png.
 
-### 3. Message the user
+### 2. Message the user
 
 Deliver results following these rules:
 
 #### Product message rules
 
 Rules:
-- IMPORTANT: When communicating search results ALWAYS deliver EACH product in separate assistant messages matching the template while adhering to #channel-specific-rules
+- IMPORTANT: When communicating search results ALWAYS deliver EACH product in separate assistant messages matching the template while adhering to #channel-specific-rules. 
 - NEVER add any preamble narrative. Just n x product message templates + 1 final message with perspective, recommendation, caveats (if applicable)
 - Use local currency where available. Show price ranges when min ≠ max.
 - Describe each product in 1-2 sentences.
@@ -165,7 +174,7 @@ $49.99 | ⭐ 4.6/5 (1,200 reviews) -- state "no reviews" if there are none
 Wireless earbuds with 8-hour battery and deep bass.
 Options: available in 4 colors.
 
-[View Product](https://store.com/product)
+[View Product](https://store.com/product) -- format as a link
 ````
 
 #### Channel-specific product message rules
@@ -173,16 +182,16 @@ These rules modify the product message template:
 Whatsapp: Image as media message, then interactive message with product info. Do not use markdown with links.
 iMessage: No markdown. Plain text only. Never put CDN/image URLs in text. When displaying products, send two message calls per product — (1) image, (2) product info
 Telegram (Openclaw): Telegram: Send one single media message per product. Write no alt text on the image. For the view product link, if available in your tools, create an inline “View Product” URL button. Otherwise, use the template.
-Telegram (Hermes Agent + all others): Do NOT send an image.
+Telegram (Hermes Agent + all other agents): Do NOT send an image. Do NOT respond normally in 1 single message. User MUST receive separate messages.
 
 
-### 4. Offer virtual try-on
+### 3. Offer visualization
 
-If the user is looking for relevant item(s) eg clothing/shoes/accessories, furniture/decor/art:
-
+If the user is looking for item(s) that can be visualized eg clothing/shoes/accessories, furniture/decor/art:
 1. Check if you have image generation capabilitities
-2. If available, offer visualization  (e.g. "Send a photo and I'll show you how it could look").
-3. When sending visualizations, state: are approximate and for inspiration only.
+2. If available, offer visualization  (e.g. "Send a photo and I'll show you how it could look"). 
+3. EDIT the photo sent by the user by passing the items to the image generation tool. NEVER just enter a text prompt.
+4. When sending visualizations, state: are approximate and for inspiration only.
 
 ---
 
@@ -200,11 +209,28 @@ Never fall back to browser checkout to bypass an agent-flow error.
 
 Before checkout, verify authentication, purchase intent, selected variant, quantity, and shipping details.
 
-Use the `checkout create` response to inspect status, email, addresses, `continue_url`, and any Shop Pay payment token. If the buyer's saved shipping details are missing, collect shipping details from the user and pass them through `checkout create` or `checkout update`.
+Use the `checkout create` response to inspect status, email, addresses, `continue_url`, and the Shop Pay payment instruments under `payment.instruments`. If the buyer's saved shipping details are missing, collect shipping details from the user and pass them through `checkout create` or `checkout update`.
 
-If status is `ready_for_complete` and a current UCP payment token is present, complete only after clear purchase intent, and only by passing `--confirm` to `shop checkout complete` (the command refuses to complete otherwise). Generate a fresh idempotency key for each distinct purchase intent and reuse it only when retrying the same purchase.
+If status is `ready_for_complete` and `payment.instruments` is present, complete only after clear purchase intent, and only by passing `--confirm` to `shop checkout complete`. Feed the `checkout create` response JSON straight into `checkout complete --checkout-stdin`; the CLI re-sends the merchant-issued instrument id as both the instrument `id` and `credential.token`. Generate a fresh idempotency key for each distinct purchase intent and reuse it only when retrying the same purchase.
 
-If no payment token is present, show the UCP `continue_url` as a Finish in Shop link. Separately explain that the user can grant payment approval in Shop Connections, then re-run checkout after the grant.
+The `checkout create`/`update` output surfaces a `messages[]` section. You MUST display every `warning` message's `content` to the user (e.g. `final_sale`, `prop65`, `age_restricted`) before completing. Show `presentation: "disclosure"` warnings verbatim and do not omit or summarize them away. Never complete a purchase without surfacing these messages.
+
+If `payment.instruments` is empty, show the UCP `continue_url` as a Finish in Shop link. Separately explain that the user can grant payment approval in Shop Connections, then re-run checkout after the grant.
+
+### Set up agent spending budget
+
+Offer to let the user set a spending budget for you if either of these is true:
+1. It is the **first** time in a conversation that a checkout reached `continue_url` and this was sent to the user
+2. The user has asked you to set up a budget / complete checkout without approval or similar.
+
+Rules:
+- ALWAYS send this in a separate, distinct message. Never with other text.
+- Send at most once per session unless explicitly requested
+- NEVER pressure the user; this is a convenience, not a requirement.
+
+Suggested message:
+
+> Tip: if you'd like, you can give me a budget to spend on your behalf so I can complete checkouts without asking each time. Set a spending limit here: https://shop.app/account/settings/connections. Or, tell me *not interested*, and I'll remember not to offer it again.
 
 ---
 

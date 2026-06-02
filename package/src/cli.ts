@@ -6,7 +6,7 @@ import { Command } from 'commander'
 import { AuthClient } from './auth.js'
 import { COUNTRY_ACCOUNT, DEFAULT_COUNTRY } from './constants.js'
 import { toErrorMessage } from './errors.js'
-import { renderCatalogResult } from './render.js'
+import { renderCatalogResult, renderCheckoutMessages } from './render.js'
 import { ShopCatalogClient } from './shop-client.js'
 import { clearStoredAuth, KeytarSecretStore, MemorySecretStore, setCountry } from './storage.js'
 import type { FetchLike, SecretStore } from './types.js'
@@ -197,7 +197,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .option('--checkout-stdin', 'Merge a checkout JSON object read from stdin')
     .option('--buyer-ip <ip>', 'Buyer public IP, forwarded to the merchant for checkout fraud/risk checks (auto-detected via api.ipify.org; override here or with SHOP_BUYER_IP)')
     .action(async (options) => {
-      await runAction({ stdout, stderr, exit }, async () => {
+      await runCheckoutAction({ stdout, stderr, exit }, async () => {
         const checkout = options.checkoutStdin ? await readJsonFromStdin(deps.stdin ?? process.stdin) : undefined
         if (!options.variantId && !checkout) {
           throw new Error('checkout create requires --variant-id or --checkout-stdin')
@@ -220,7 +220,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .requiredOption('--checkout-stdin', 'Read checkout update JSON from stdin')
     .option('--buyer-ip <ip>', 'Buyer public IP, forwarded to the merchant for checkout fraud/risk checks (auto-detected via api.ipify.org; override here or with SHOP_BUYER_IP)')
     .action(async (options) => {
-      await runAction({ stdout, stderr, exit }, async () =>
+      await runCheckoutAction({ stdout, stderr, exit }, async () =>
         resolveClient(deps, program).updateCheckout({
           shopDomain: options.shopDomain,
           checkoutId: options.checkoutId,
@@ -232,10 +232,10 @@ export function createProgram(deps: CliDependencies = {}): Command {
 
   checkout
     .command('complete')
-    .description('Complete checkout using a UCP-returned payment token')
+    .description('Complete checkout by echoing back the payment instruments from the create_checkout response')
     .requiredOption('--shop-domain <domain>', 'Merchant shop domain')
     .requiredOption('--checkout-id <id>', 'Checkout ID')
-    .requiredOption('--payment-token-stdin', 'Read the current checkout payment token from stdin')
+    .requiredOption('--checkout-stdin', 'Read the create_checkout response JSON (or its payment block) from stdin to source the payment instruments')
     .requiredOption('--idempotency-key <key>', 'Fresh key for this purchase intent')
     .option('--confirm', 'Authorize this purchase after confirming details with the user; required to complete')
     .option('--buyer-ip <ip>', 'Buyer public IP, forwarded to the merchant for checkout fraud/risk checks (auto-detected via api.ipify.org; override here or with SHOP_BUYER_IP)')
@@ -246,10 +246,11 @@ export function createProgram(deps: CliDependencies = {}): Command {
             'Refusing to complete checkout without --confirm. Verify the item, variant, quantity, price, shipping, and total cost with the user, then re-run with --confirm to authorize this purchase.',
           )
         }
+        const checkout = await readJsonFromStdin(deps.stdin ?? process.stdin)
         return resolveClient(deps, program).completeCheckout({
           shopDomain: options.shopDomain,
           checkoutId: options.checkoutId,
-          paymentToken: (await readTextFromStdin(deps.stdin ?? process.stdin)).trim(),
+          instruments: extractInstruments(checkout),
           idempotencyKey: options.idempotencyKey,
           buyerIp: options.buyerIp,
         })
@@ -351,6 +352,24 @@ async function runAction(
 ): Promise<void> {
   try {
     const result = await action()
+    io.stdout?.write(`${JSON.stringify(result, null, 2)}\n`)
+  } catch (error) {
+    io.stderr?.write(`# Error\n\n${toErrorMessage(error)}\n`)
+    io.exit(1)
+  }
+}
+
+// Checkout create/update: surface the UCP `messages[]` warnings (final_sale,
+// prop65, age_restricted, disclosures) above the raw JSON so the agent reliably
+// sees them and can show them to the user before completing. Full JSON is kept.
+async function runCheckoutAction(
+  io: Required<Pick<CliDependencies, 'exit'>> & Pick<CliDependencies, 'stdout' | 'stderr'>,
+  action: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    const result = await action()
+    const messages = renderCheckoutMessages(result)
+    if (messages) io.stdout?.write(`${messages}\n\n`)
     io.stdout?.write(`${JSON.stringify(result, null, 2)}\n`)
   } catch (error) {
     io.stderr?.write(`# Error\n\n${toErrorMessage(error)}\n`)
@@ -488,6 +507,25 @@ async function readJsonFromStdin(stdin: NodeJS.ReadStream | AsyncIterable<Buffer
     throw new Error('stdin must contain a JSON object')
   }
   return parsed as Record<string, unknown>
+}
+
+// Pull the payment instruments out of whatever the caller piped in: either the
+// full create_checkout response ({ payment: { instruments: [...] } }) or a bare
+// payment block ({ instruments: [...] }). complete_checkout must echo these back
+// so the merchant can match the instrument id it issued for this checkout.
+function extractInstruments(checkout: Record<string, unknown>): Record<string, unknown>[] {
+  const payment = isObject(checkout.payment) ? checkout.payment : checkout
+  const instruments = isObject(payment) ? payment.instruments : undefined
+  if (!Array.isArray(instruments) || instruments.length === 0) {
+    throw new Error(
+      'stdin must contain the create_checkout response with payment.instruments (pipe the create output, or a {"payment":{"instruments":[...]}} object).',
+    )
+  }
+  return instruments.filter(isObject)
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 async function readTextFromStdin(stdin: NodeJS.ReadStream | AsyncIterable<Buffer | string>): Promise<string> {
