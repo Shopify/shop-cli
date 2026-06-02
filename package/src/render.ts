@@ -167,6 +167,43 @@ function renderMessages(messages: unknown): string {
   return notFound.length ? `_Not found: ${notFound.join(', ')}_` : ''
 }
 
+// Surface the UCP checkout `messages[]` array (warnings/errors/info such as
+// final_sale, prop65, age_restricted, disclosures) into a clearly-labeled,
+// human-readable block. The protocol requires `warning` content to be shown
+// (and `presentation: "disclosure"` messages shown verbatim, non-dismissable),
+// so we lift them out of the raw JSON blob where the agent can miss them.
+// Returns '' when there are no messages.
+export function renderCheckoutMessages(result: unknown): string {
+  const messages = collectCheckoutMessages(result)
+  if (!messages.length) return ''
+  const lines = messages.map((m) => {
+    const type = (asString(m.type) ?? 'message').toUpperCase()
+    const code = asString(m.code)
+    const content = asString(m.content)
+    const meta: string[] = []
+    const presentation = asString(m.presentation)
+    const path = asString(m.path)
+    const url = asString(m.url)
+    if (presentation) meta.push(`presentation: ${presentation}`)
+    if (path) meta.push(`path: ${path}`)
+    if (url) meta.push(url)
+    let line = `- [${type}${code ? ` ${code}` : ''}] ${content ?? ''}`.trimEnd()
+    if (meta.length) line += ` (${meta.join('; ')})`
+    return line
+  })
+  return ['## Checkout messages — MUST be shown to the user', ...lines].join('\n')
+}
+
+// Checkout messages may sit at the top level (`messages`) or nested under the
+// returned checkout (`checkout.messages`). Collect both.
+function collectCheckoutMessages(result: unknown): JsonObject[] {
+  if (!isObject(result)) return []
+  const direct = Array.isArray(result.messages) ? (result.messages as unknown[]) : []
+  const checkout = isObject(result.checkout) ? (result.checkout as JsonObject) : undefined
+  const nested = checkout && Array.isArray(checkout.messages) ? (checkout.messages as unknown[]) : []
+  return [...direct, ...nested].filter(isObject)
+}
+
 function getStructuredContent(json: unknown): JsonObject | undefined {
   if (!isObject(json)) return undefined
   const result = isObject(json.result) ? (json.result as JsonObject) : undefined

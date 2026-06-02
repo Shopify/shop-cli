@@ -78,7 +78,11 @@ export interface CheckoutUpdateInput {
 export interface CheckoutCompleteInput {
   shopDomain: string
   checkoutId: string
-  paymentToken: string
+  // The payment instruments echoed back by create_checkout (response
+  // `payment.instruments`). We re-send these verbatim, only selecting them and
+  // injecting the credential token, so the instrument id matches the one the
+  // merchant issued for this checkout session.
+  instruments: JsonObject[]
   idempotencyKey: string
   buyerIp?: string
 }
@@ -170,6 +174,11 @@ export class ShopCatalogClient {
 
   async completeCheckout(input: CheckoutCompleteInput): Promise<unknown> {
     const shopDomain = assertValidShopDomain(input.shopDomain)
+    if (input.instruments.length === 0) {
+      throw new ShopCliError(
+        'complete_checkout requires the payment instruments from the create_checkout response (payment.instruments). None were provided.',
+      )
+    }
     const token = await this.getUcpToken(shopDomain)
     const buyerIp = await this.getBuyerIp(input.buyerIp)
     const result = unwrapMcpResult(
@@ -180,18 +189,11 @@ export class ShopCatalogClient {
           id: input.checkoutId,
           checkout: {
             payment: {
-              instruments: [
-                {
-                  id: 'instrument-1',
-                  handler_id: 'shop_pay',
-                  type: 'shop_pay',
-                  selected: true,
-                  credential: {
-                    type: 'shop_token',
-                    token: input.paymentToken,
-                  },
-                },
-              ],
+              // Echo the instruments create_checkout returned. The merchant keys
+              // completion off the instrument id it issued, so we must re-send
+              // that exact id (not a synthetic one) and set credential.token to
+              // it. This mirrors the reference simulator's _select_instrument.
+              instruments: input.instruments.map(selectInstrument),
             },
           },
         },
@@ -509,6 +511,24 @@ function assertCheckoutCompleted(result: unknown): void {
     `Checkout did not complete (status: ${typeof status === 'string' ? status : 'unknown'}). The purchase was not confirmed; do not retry without re-verifying the checkout.`,
     { details: result },
   )
+}
+
+// Prepare a create_checkout payment instrument for complete_checkout: keep every
+// field the merchant returned (id, handler_id, type, display, ...), mark it
+// selected, and set credential.token to the instrument's own id. The instrument
+// id IS the checkout payment token; re-sending the exact id is what lets the
+// merchant match the instrument to the session. Mirrors the reference
+// simulator's _select_instrument.
+function selectInstrument(instrument: JsonObject): JsonObject {
+  const id = typeof instrument.id === 'string' ? instrument.id : ''
+  const credential = isPlainObject(instrument.credential)
+    ? instrument.credential
+    : { type: 'shop_token' }
+  return {
+    ...instrument,
+    selected: true,
+    credential: { ...credential, token: id },
+  }
 }
 
 function normalizeVariantGid(variantId: string): string {
