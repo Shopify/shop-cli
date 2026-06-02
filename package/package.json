@@ -1,34 +1,50 @@
 {
   "name": "@shopify/shop-cli",
   "version": "0.1.0",
-  "description": "Installable CLI for the Shop personal shopping skill",
+  "description": "Personal shopping CLI for Shop catalog search, checkout, and order workflows",
   "type": "module",
   "license": "UNLICENSED",
+  "private": false,
+  "homepage": "https://help.shop.app/shop/shopping/personal-agents",
   "bin": {
     "shop": "./dist/bin.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/bin.js",
     "shop": "node dist/bin.js",
-    "test": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js",
+    "test": "rm -rf .test-build && tsc -p tsconfig.test.json && cp package.json .test-build/package.json && node --test .test-build/tests/*.test.js",
     "typecheck": "tsc --noEmit",
-    "pack:dry": "npm pack --dry-run"
+    "version-packages": "changeset version",
+    "release": "pnpm build && pnpm test && changeset publish",
+    "pack:dry": "pnpm dlx npm@latest pack --dry-run"
   },
   "dependencies": {
     "commander": "^12.1.0",
     "keytar": "^7.9.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^22.15.3",
     "typescript": "^5.8.3"
   },
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@10.28.0"
+  "packageManager": "pnpm@10.28.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "keytar"
+    ]
+  }
 }

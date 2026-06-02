@@ -1,0 +1,52 @@
+# name: Release
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# permissions:
+#   contents: write
+#   id-token: write
+#   pull-requests: write
+
+# jobs:
+#   release:
+#     name: Version or publish npm package
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout repo
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '20'
+#           registry-url: 'https://registry.npmjs.org'
+#           cache: pnpm
+#           cache-dependency-path: package/pnpm-lock.yaml
+
+#       - name: Enable pnpm
+#         run: |
+#           corepack enable
+#           corepack prepare pnpm@10.28.0 --activate
+
+#       - name: Update npm for OIDC publishing
+#         run: npm install --global npm@latest
+
+#       - name: Install dependencies
+#         working-directory: package
+#         run: pnpm install --frozen-lockfile
+
+#       - name: Create release PR or publish
+#         uses: changesets/action@v1
+#         with:
+#           cwd: package
+#           publish: pnpm release
+#           version: pnpm version-packages
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#           # Keep this as a literal empty string. It forces npm OIDC Trusted
+#           # Publishing instead of falling back to token auth.
+#           NPM_TOKEN: ''
