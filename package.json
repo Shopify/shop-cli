@@ -3,18 +3,32 @@
   "version": "0.1.0",
   "description": "Personal shopping CLI for Shop catalog search, checkout, and order workflows",
   "type": "module",
-  "license": "UNLICENSED",
-  "private": false,
-  "homepage": "https://help.shop.app/shop/shopping/personal-agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shopify/shop-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/Shopify/shop-cli/issues"
+  },
+  "homepage": "https://github.com/Shopify/shop-cli#readme",
+  "sideEffects": false,
   "bin": {
     "shop": "./dist/bin.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "files": [
     "dist",
     "README.md",
-    "LICENSE.md"
+    "LICENSE",
+    "src"
   ],
   "publishConfig": {
     "access": "public",
@@ -26,6 +40,7 @@
     "test": "rm -rf .test-build && tsc -p tsconfig.test.json && cp package.json .test-build/package.json && node --test .test-build/tests/*.test.js",
     "typecheck": "tsc --noEmit",
     "version-packages": "changeset version",
+    "changeset": "changeset",
     "release": "pnpm build && pnpm test && changeset publish",
     "pack:dry": "pnpm dlx npm@latest pack --dry-run"
   },

@@ -1,52 +1,50 @@
-# name: Release
+name: Release
 
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  push:
+    branches: [main]
 
-# permissions:
-#   contents: write
-#   id-token: write
-#   pull-requests: write
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
 
-# jobs:
-#   release:
-#     name: Version or publish npm package
-#     runs-on: ubuntu-latest
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
-#     steps:
-#       - name: Checkout repo
-#         uses: actions/checkout@v4
-
-#       - name: Setup Node.js
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: '20'
-#           registry-url: 'https://registry.npmjs.org'
-#           cache: pnpm
-#           cache-dependency-path: package/pnpm-lock.yaml
-
-#       - name: Enable pnpm
-#         run: |
-#           corepack enable
-#           corepack prepare pnpm@10.28.0 --activate
-
-#       - name: Update npm for OIDC publishing
-#         run: npm install --global npm@latest
-
-#       - name: Install dependencies
-#         working-directory: package
-#         run: pnpm install --frozen-lockfile
-
-#       - name: Create release PR or publish
-#         uses: changesets/action@v1
-#         with:
-#           cwd: package
-#           publish: pnpm release
-#           version: pnpm version-packages
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#           # Keep this as a literal empty string. It forces npm OIDC Trusted
-#           # Publishing instead of falling back to token auth.
-#           NPM_TOKEN: ''
+jobs:
+  changesets:
+    name: changeset release
+    runs-on: ubuntu-22.04
+    environment:
+      name: npm-shop-cli
+      url: https://www.npmjs.com/package/@shopify/shop-cli
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - name: Update npm for OIDC publishing
+        run: npm install --global npm@latest
+      - run: pnpm install --frozen-lockfile
+      - uses: changesets/action@v1
+        with:
+          version: pnpm version-packages
+          publish: pnpm release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+          NPM_TOKEN: ""
+          NODE_AUTH_TOKEN: ""

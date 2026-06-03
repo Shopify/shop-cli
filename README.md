@@ -2,8 +2,6 @@
 
 Personal shopping CLI for Shop catalog search, checkout, and order workflows.
 
-> This package is publicly installable, but it is not open source. See [License](#license).
-
 ## Install
 
 ```bash
@@ -91,6 +89,4 @@ See https://help.shop.app/shop/shopping/personal-agents for accepted and prohibi
 
 ## License
 
-Copyright Shopify Inc. All rights reserved.
-
-This package is not open source. See [LICENSE.md](./LICENSE.md).
+MIT. See [LICENSE](./LICENSE).
