@@ -100,6 +100,54 @@ describe('renderCatalogResult', () => {
     expect(gbp).not.toContain('$20.00 GBP')
   })
 
+  it('renders an https image url as Img:', () => {
+    expect(md).toContain('Img: https://cdn.shopify.com/s/files/1/2995/0112/files/u530csb_nb_02_i.jpg')
+  })
+
+  it('rejects non-https image urls (file/data/javascript/http) and falls through to a safe one', () => {
+    const out = renderCatalogResult('search_catalog', {
+      result: {
+        structuredContent: {
+          products: [
+            {
+              title: 'Unsafe media product',
+              variants: [{ id: 'gid://shopify/ProductVariant/1' }],
+              media: [
+                { type: 'image', url: 'javascript:alert(1)' },
+                { type: 'image', url: 'data:image/png;base64,AAAA' },
+                { type: 'image', url: 'file:///etc/passwd' },
+                { type: 'image', url: 'http://evil.example.com/track.png' },
+                { type: 'image', url: 'https://cdn.shopify.com/s/files/ok.jpg' },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    expect(out).toContain('Img: https://cdn.shopify.com/s/files/ok.jpg')
+    expect(out).not.toContain('javascript:')
+    expect(out).not.toContain('data:')
+    expect(out).not.toContain('file:')
+    expect(out).not.toContain('http://evil.example.com')
+  })
+
+  it('omits Img entirely when no media url is https', () => {
+    const out = renderCatalogResult('search_catalog', {
+      result: {
+        structuredContent: {
+          products: [
+            {
+              title: 'Only unsafe media',
+              variants: [{ id: 'gid://shopify/ProductVariant/1' }],
+              media: [{ type: 'image', url: 'http://insecure.example.com/x.png' }],
+            },
+          ],
+        },
+      },
+    })
+    expect(out).not.toContain('Img:')
+  })
+
   it('shows the product UPID (short id), not the full gid', () => {
     expect(md).toContain('id: 6J8JMOV0g1JeQNJlp3juMV')
     expect(md).not.toContain('gid://shopify/p/')

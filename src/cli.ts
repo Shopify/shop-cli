@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { extname } from 'node:path'
 
 import { Command } from 'commander'
@@ -20,6 +21,9 @@ export interface CliDependencies {
   exit?: (code: number) => never
 }
 
+const require = createRequire(import.meta.url)
+const packageJson = require('../package.json') as { version: string }
+
 type OutputFormat = 'md' | 'json'
 
 interface GlobalOptions {
@@ -38,7 +42,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
   program
     .name('shop')
     .description('Shop personal shopping CLI for catalog search, auth, checkout, and order search')
-    .version('0.1.0')
+    .version(packageJson.version)
     .option('--country <code>', 'Buyer country for this call (catalog context signal, not a ships-to filter). Transient; use `shop config set-country` to persist a default.', DEFAULT_COUNTRY)
     .option('--profile-url <url>', 'UCP agent profile URL for global catalog calls')
     .option('--memory-store', 'Use in-memory token storage for tests and dry runs')

@@ -287,11 +287,24 @@ function firstMediaUrl(media: unknown): string | undefined {
   if (!Array.isArray(media)) return undefined
   for (const item of media) {
     if (isObject(item)) {
-      const url = asString(item.url)
+      const url = safeImageUrl(asString(item.url))
       if (url) return url
     }
   }
   return undefined
+}
+
+// Media URLs come from untrusted merchant catalog content, so only surface
+// HTTPS URLs. Reject http:, file:, data:, javascript:, and any other scheme
+// (per references/safety.md) so a malicious listing can't emit a dangerous or
+// tracking link as a user-visible image.
+function safeImageUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined
+  try {
+    return new URL(url).protocol === 'https:' ? url : undefined
+  } catch {
+    return undefined
+  }
 }
 
 // top_features / tech_specs come back from the catalog as newline-delimited

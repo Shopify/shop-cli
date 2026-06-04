@@ -2,7 +2,7 @@
 name: shop
 description: "Your personal shopping assistant — Search, Buy, Track, Return, and Re-order products through the best product catalog in the world."
 metadata:
-  version: "0.3.0"
+  version: "0.1.0"
   homepage: "https://shop.app"
 ---
 
@@ -19,10 +19,9 @@ If package installation is blocked, use the direct API instructions in the refer
 
 ## Installation
 
-From this skill folder:
+From the repository root:
 
 ```bash
-cd package
 pnpm install
 pnpm build
 pnpm link --global
@@ -32,17 +31,14 @@ shop --help
 Uninstall:
 
 ```bash
-cd package
 pnpm unlink --global
 ```
 
 If installed from a registry or tarball instead of `pnpm link --global`:
 
 ```bash
-pnpm remove --global @shopify/shop
+pnpm remove --global @shopify/shop-cli
 ```
-
-## Package Contents
 
 ## Core Flow
 
