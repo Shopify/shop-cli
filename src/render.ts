@@ -13,7 +13,7 @@
 import type { JsonObject } from './types.js'
 
 const UTM_PARAMS: Record<string, string> = {
-  utm_source: 'shop-website',
+  utm_source: 'shop-personal-agent',
   utm_medium: 'shop-skill',
 }
 

@@ -1,9 +1,13 @@
 import {
   ACCESS_TOKEN_ACCOUNT,
+  CLIENT_ID,
   DEFAULT_COUNTRY,
   DEFAULT_PROFILE_URL,
+  ACCESS_TOKEN_TOKEN_TYPE,
+  GLOBAL_CATALOG_AUDIENCE,
   GLOBAL_CATALOG_MCP_URL,
   REFRESH_TOKEN_ACCOUNT,
+  TOKEN_EXCHANGE_URL,
   UCP_PROFILE,
 } from './constants.js'
 import { ShopCliError } from './errors.js'
@@ -103,6 +107,9 @@ export class ShopCatalogClient {
   // not explicitly set, so the stored preference (then DEFAULT_COUNTRY) is used instead.
   private readonly explicitCountry?: string
   private readonly ucpTokens = new Map<string, string>()
+  // Cached global-catalog exchange JWT (session/in-memory only). Present only
+  // when the buyer is signed in; absent means we search the catalog unauthenticated.
+  private catalogToken?: string
 
   constructor(private readonly options: ShopCatalogClientOptions) {
     this.fetchImpl = options.fetch ?? fetch
@@ -123,18 +130,18 @@ export class ShopCatalogClient {
     if (!catalog.query && !catalog.like) {
       throw new ShopCliError('Search requires a query, --like-id, or --image')
     }
-    return this.callMcp(GLOBAL_CATALOG_MCP_URL, 'search_catalog', { catalog })
+    return this.callCatalogMcp('search_catalog', { catalog })
   }
 
   async lookupCatalog(input: CatalogLookupInput): Promise<unknown> {
     if (input.ids.length === 0) throw new ShopCliError('At least one id is required')
     const catalog = await this.catalogInput(input)
-    return this.callMcp(GLOBAL_CATALOG_MCP_URL, 'lookup_catalog', { catalog })
+    return this.callCatalogMcp('lookup_catalog', { catalog })
   }
 
   async getProduct(input: CatalogGetProductInput): Promise<unknown> {
     const catalog = await this.catalogInput(input)
-    return this.callMcp(GLOBAL_CATALOG_MCP_URL, 'get_product', { catalog })
+    return this.callCatalogMcp('get_product', { catalog })
   }
 
   async createCheckout(input: CheckoutCreateInput): Promise<unknown> {
@@ -173,6 +180,7 @@ export class ShopCatalogClient {
   }
 
   async completeCheckout(input: CheckoutCompleteInput): Promise<unknown> {
+    // State-changing: caller MUST have explicit user purchase intent (CLI enforces --confirm).
     const shopDomain = assertValidShopDomain(input.shopDomain)
     if (input.instruments.length === 0) {
       throw new ShopCliError(
@@ -356,6 +364,66 @@ export class ShopCatalogClient {
     return json
   }
 
+  // Global catalog read calls. When the buyer is signed in we attach an
+  // authenticated catalog token; otherwise we fall back to an unauthenticated
+  // request. Auth is handled here so callers never have to.
+  private async callCatalogMcp(toolName: string, args: JsonObject): Promise<unknown> {
+    const token = await this.getCatalogToken()
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+    try {
+      return await this.callMcp(GLOBAL_CATALOG_MCP_URL, toolName, args, headers)
+    } catch (error) {
+      // If the catalog token was rejected, drop it and retry once. On the
+      // retry we re-mint (or, if re-mint fails, fall back to unauthenticated)
+      // so a stale catalog token never blocks discovery.
+      if (error instanceof ShopCliError && error.status === 401 && token) {
+        this.catalogToken = undefined
+        const fresh = await this.getCatalogToken()
+        return this.callMcp(
+          GLOBAL_CATALOG_MCP_URL,
+          toolName,
+          args,
+          fresh ? { Authorization: `Bearer ${fresh}` } : {},
+        )
+      }
+      throw error
+    }
+  }
+
+  // Mint (and cache) a Global API token for authenticated global-catalog calls
+  // when the buyer is signed in. Returns null when there is no usable access
+  // token, so search stays available unauthenticated.
+  //
+  // Brokered RFC 8693 exchange: audience=api.shopify.com + requested_token_type
+  // returns a Global API access_token that catalog.shopify.com accepts as a
+  // Bearer. (Distinct from the per-merchant checkout exchange in getUcpToken,
+  // which targets resource=https://{shop}/.) The buyer's catalog-search consent
+  // scope rides along on the source token, so no explicit scope is requested.
+  private async getCatalogToken(): Promise<string | null> {
+    if (this.catalogToken) return this.catalogToken
+    const accessToken = await this.requireAccessToken().catch(() => null)
+    if (!accessToken) return null
+    const response = await this.fetchImpl(TOKEN_EXCHANGE_URL, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formBody({
+        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+        subject_token: accessToken,
+        subject_token_type: ACCESS_TOKEN_TOKEN_TYPE,
+        requested_token_type: ACCESS_TOKEN_TOKEN_TYPE,
+        audience: GLOBAL_CATALOG_AUDIENCE,
+        client_id: CLIENT_ID,
+      }),
+    })
+    const json = await parseJsonResponse<{ access_token?: string }>(response, 'Fetch catalog token')
+    if (!json.access_token) throw new ShopCliError('Catalog token response did not include access_token')
+    this.catalogToken = json.access_token
+    return this.catalogToken
+  }
+
   private async callShopMcp(
     shopDomain: string,
     toolName: string,
@@ -433,7 +501,6 @@ export class ShopCatalogClient {
         subject_token: accessToken,
         subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
         resource: `https://${shopDomain}/`,
-        scope: 'ucp:scopes:checkout_session personal_agent',
         client_id: '5c733ab2-1903-400a-891e-7ba20c09e2a3',
       }),
     })
@@ -452,11 +519,10 @@ export class ShopCatalogClient {
     throw new ShopCliError('Authentication required. Run `shop auth login` first.')
   }
 
-  // Resolve the buyer's public IP, forwarded to the merchant as Shopify-Buyer-Ip so
-  // checkout runs the same fraud/risk checks any web checkout does. Prefers an explicit
-  // override (--buyer-ip) or the SHOP_BUYER_IP env var, and only then falls back to the
-  // third-party api.ipify.org lookup. A network failure there surfaces an actionable
-  // error pointing at the override.
+  // Resolve the buyer's public IP (PII) for the merchant's Shopify-Buyer-Ip fraud/risk
+  // checks, as any web checkout does. Prefers an explicit, user-provided --buyer-ip or
+  // SHOP_BUYER_IP; only as a fallback does it disclose the IP to third-party api.ipify.org.
+  // Set either override to avoid the third-party lookup entirely.
   private async getBuyerIp(override?: string): Promise<string> {
     const explicit = (override ?? process.env.SHOP_BUYER_IP ?? '').trim()
     if (explicit) return explicit

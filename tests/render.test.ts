@@ -60,7 +60,7 @@ describe('withUtm', () => {
     const url = new URL(out)
     expect(url.searchParams.get('_gsid')).toBe('AxJWpxxBEvbw')
     expect(url.searchParams.get('payment')).toBe('shop_pay')
-    expect(url.searchParams.get('utm_source')).toBe('shop-website')
+    expect(url.searchParams.get('utm_source')).toBe('shop-personal-agent')
     expect(url.searchParams.get('utm_medium')).toBe('shop-skill')
   })
 
@@ -154,7 +154,7 @@ describe('renderCatalogResult', () => {
   })
 
   it('appends utm to the product url and preserves _gsid', () => {
-    expect(md).toMatch(/https:\/\/kozmoshoes\.com\/products\/[^\s]*_gsid=AxJWpxxBEvbw[^\s]*utm_source=shop-website/)
+    expect(md).toMatch(/https:\/\/kozmoshoes\.com\/products\/[^\s]*_gsid=AxJWpxxBEvbw[^\s]*utm_source=shop-personal-agent/)
   })
 
   it('renders features, specs, and grouped attributes', () => {
