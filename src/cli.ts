@@ -172,6 +172,63 @@ export function createProgram(deps: CliDependencies = {}): Command {
     })
 
   auth
+    .command('device-code')
+    .description('Begin sign-in: print the Shop authorization URL and save pending state (does not block)')
+    .option('--device-name <name>', 'Name shown in Shop Connections')
+    .action(async (options) => {
+      await runAction({ stdout, stderr, exit }, async () => {
+        const store = resolveStore(deps, program.optsWithGlobals<GlobalOptions>())
+        const authClient = new AuthClient({ fetch: deps.fetch, store, deviceName: options.deviceName })
+        const message = await authClient.startDeviceAuthorization()
+        return {
+          verification_uri_complete: message.verificationUriComplete,
+          user_code: message.userCode,
+          expires_in: message.expiresIn,
+          next: 'After the user authorizes in the browser, run `shop auth poll` to store tokens.',
+        }
+      })
+    })
+
+  auth
+    .command('poll')
+    .description('Exchange the pending device authorization for tokens and store them. Re-run while pending.')
+    .action(async () => {
+      await runAction({ stdout, stderr, exit }, async () => {
+        const store = resolveStore(deps, program.optsWithGlobals<GlobalOptions>())
+        const authClient = new AuthClient({ fetch: deps.fetch, store })
+        const result = await authClient.completeDeviceAuthorization()
+        switch (result.status) {
+          case 'authenticated':
+            return new ShopCatalogClient({ fetch: deps.fetch, store, auth: authClient }).status()
+          case 'pending':
+            return {
+              authenticated: false,
+              status: 'pending',
+              message: 'Authorization still pending. Ask the user to finish signing in, then run `shop auth poll` again.',
+            }
+          case 'expired':
+            return {
+              authenticated: false,
+              status: 'expired',
+              message: 'The sign-in link expired. Run `shop auth device-code` to start over.',
+            }
+          case 'denied':
+            return {
+              authenticated: false,
+              status: 'denied',
+              message: 'The user declined the sign-in request.',
+            }
+          default:
+            return {
+              authenticated: false,
+              status: 'no_pending',
+              message: 'No pending device authorization. Run `shop auth device-code` first.',
+            }
+        }
+      })
+    })
+
+  auth
     .command('status')
     .description('Check whether stored Shop auth is valid')
     .action(async () => {

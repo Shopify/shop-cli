@@ -21,6 +21,13 @@ export interface TokenSet {
   refreshToken?: string
 }
 
+// Persisted between `auth device-code` and `auth poll`. expiresAt is epoch ms.
+export interface PendingDeviceAuth {
+  deviceCode: string
+  interval: number
+  expiresAt: number
+}
+
 export interface UserInfo {
   sub?: string
   email?: string

@@ -92,7 +92,8 @@ Auth:
 
 ```bash
 shop auth status
-shop auth login --device-name "Joe's Work Device Claw"
+shop auth device-code --device-name "Joe's Work Device Claw"  # start sign-in; prints URL
+shop auth poll                                               # after the user authorizes; re-run while pending
 shop auth logout
 ```
 
@@ -195,7 +196,7 @@ If the user is looking for item(s) that can be visualized eg clothing/shoes/acce
 
 The CLI stores `access_token`, `refresh_token`, `device_id`, and `country` in the OS secret store under service `shop-agent`, matching the original skill. Always check `shop auth status` before starting a new login.
 
-When the user wants to take an authenticated action, ask them to sign in to Shop - presenting them the URL for the user to open. 
+When the user wants to take an authenticated action, sign-in is two non-blocking steps: run `shop auth device-code` and share the `verification_uri_complete` it prints; once the user is done, run `shop auth poll` to store the tokens (re-run while it reports `pending`), then confirm with `shop auth status`. Avoid the blocking `shop auth login` for agent use — it must stay alive polling until the user finishes, which usually isn't possible between turns.
 
 ---
 
