@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { extname } from 'node:path'
 
 import { Command } from 'commander'
@@ -21,9 +20,6 @@ export interface CliDependencies {
   exit?: (code: number) => never
 }
 
-const require = createRequire(import.meta.url)
-const packageJson = require('../package.json') as { version: string }
-
 type OutputFormat = 'md' | 'json'
 
 interface GlobalOptions {
@@ -42,7 +38,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
   program
     .name('shop')
     .description('Shop personal shopping CLI for catalog search, auth, checkout, and order search')
-    .version(packageJson.version)
+    .version('0.1.0')
     .option('--country <code>', 'Buyer country for this call (catalog context signal, not a ships-to filter). Transient; use `shop config set-country` to persist a default.', DEFAULT_COUNTRY)
     .option('--profile-url <url>', 'UCP agent profile URL for global catalog calls')
     .option('--memory-store', 'Use in-memory token storage for tests and dry runs')
@@ -105,6 +101,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .description('Look up product or variant IDs in the global catalog')
     .argument('<ids...>', 'Product or variant IDs')
     .option('--country <code>', 'Buyer country')
+    .option('--currency <code>', 'Currency signal')
     .option('--ships-to <code>', 'Filter to products that ship to this country (ISO alpha-2)')
     .option('--ships-to-region <code>', 'ships-to region (requires --ships-to)')
     .option('--ships-to-postal <code>', 'ships-to postal code (requires --ships-to)')
@@ -116,6 +113,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
         resolveClient(deps, program).lookupCatalog({
           ids,
           country: options.country,
+          currency: options.currency,
           shipsTo: buildShipsTo(options.shipsTo, options.shipsToRegion, options.shipsToPostal),
           // Omit the availability filter to include unavailable products; otherwise restrict to available.
           available: options.includeUnavailable ? undefined : true,
@@ -131,6 +129,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .description('Get a full product detail record')
     .argument('<id>', 'Product or variant ID')
     .option('--country <code>', 'Buyer country')
+    .option('--currency <code>', 'Currency signal')
     .option('--select <name=label...>', 'Variant option selection')
     .option('--preference <name...>', 'Variant relaxation priority')
     .option('--view <name>', 'Catalog response view')
@@ -139,6 +138,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
         resolveClient(deps, program).getProduct({
           id,
           country: options.country,
+          currency: options.currency,
           selected: parseSelections(options.select),
           preferences: options.preference,
           view: options.view,

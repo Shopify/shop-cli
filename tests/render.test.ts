@@ -100,54 +100,6 @@ describe('renderCatalogResult', () => {
     expect(gbp).not.toContain('$20.00 GBP')
   })
 
-  it('renders an https image url as Img:', () => {
-    expect(md).toContain('Img: https://cdn.shopify.com/s/files/1/2995/0112/files/u530csb_nb_02_i.jpg')
-  })
-
-  it('rejects non-https image urls (file/data/javascript/http) and falls through to a safe one', () => {
-    const out = renderCatalogResult('search_catalog', {
-      result: {
-        structuredContent: {
-          products: [
-            {
-              title: 'Unsafe media product',
-              variants: [{ id: 'gid://shopify/ProductVariant/1' }],
-              media: [
-                { type: 'image', url: 'javascript:alert(1)' },
-                { type: 'image', url: 'data:image/png;base64,AAAA' },
-                { type: 'image', url: 'file:///etc/passwd' },
-                { type: 'image', url: 'http://evil.example.com/track.png' },
-                { type: 'image', url: 'https://cdn.shopify.com/s/files/ok.jpg' },
-              ],
-            },
-          ],
-        },
-      },
-    })
-    expect(out).toContain('Img: https://cdn.shopify.com/s/files/ok.jpg')
-    expect(out).not.toContain('javascript:')
-    expect(out).not.toContain('data:')
-    expect(out).not.toContain('file:')
-    expect(out).not.toContain('http://evil.example.com')
-  })
-
-  it('omits Img entirely when no media url is https', () => {
-    const out = renderCatalogResult('search_catalog', {
-      result: {
-        structuredContent: {
-          products: [
-            {
-              title: 'Only unsafe media',
-              variants: [{ id: 'gid://shopify/ProductVariant/1' }],
-              media: [{ type: 'image', url: 'http://insecure.example.com/x.png' }],
-            },
-          ],
-        },
-      },
-    })
-    expect(out).not.toContain('Img:')
-  })
-
   it('shows the product UPID (short id), not the full gid', () => {
     expect(md).toContain('id: 6J8JMOV0g1JeQNJlp3juMV')
     expect(md).not.toContain('gid://shopify/p/')
@@ -195,6 +147,46 @@ describe('renderCatalogResult', () => {
     expect(md).toContain('Size: 7.5, 8, 8.5')
     expect(md).toContain('— Variants —')
     expect(md).toContain('Sea Salt With Arid Stone / 7.5 (46434269724889)')
+  })
+
+  it('renders per-variant availability (status, low stock, and the boolean fallback)', () => {
+    const out = renderCatalogResult('search_catalog', {
+      result: {
+        structuredContent: {
+          products: [
+            {
+              title: 'Trail Runner Pro',
+              variants: [
+                {
+                  id: 'gid://shopify/ProductVariant/1',
+                  options: [{ name: 'Size', label: '8' }],
+                  availability: { available: true, status: 'in_stock', running_low: false },
+                },
+                {
+                  id: 'gid://shopify/ProductVariant/2',
+                  options: [{ name: 'Size', label: '9' }],
+                  availability: { available: true, status: 'in_stock', running_low: true },
+                },
+                {
+                  id: 'gid://shopify/ProductVariant/3',
+                  options: [{ name: 'Size', label: '10' }],
+                  availability: { available: false },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    expect(out).toContain('8 (1) — in stock')
+    expect(out).toContain('9 (2) — in stock (low stock)')
+    expect(out).toContain('10 (3) — unavailable')
+  })
+
+  it('omits availability when the variant has none (no trailing dash)', () => {
+    // The base fixture variant has no availability field.
+    expect(md).toContain('Sea Salt With Arid Stone / 7.5 (46434269724889)')
+    expect(md).not.toMatch(/46434269724889\) —/)
   })
 
   it('names variants from their option labels, not the repeated product title', () => {

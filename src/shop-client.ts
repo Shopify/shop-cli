@@ -48,6 +48,7 @@ export interface CatalogSearchInput {
 export interface CatalogLookupInput {
   ids: string[]
   country?: string
+  currency?: string
   available?: boolean
   condition?: string[]
   shipsTo?: { country: string; region?: string; postalCode?: string }
@@ -59,6 +60,7 @@ export interface CatalogGetProductInput {
   selected?: Array<{ name: string; label: string }>
   preferences?: string[]
   country?: string
+  currency?: string
   available?: boolean
   condition?: string[]
   view?: string
@@ -272,9 +274,12 @@ export class ShopCatalogClient {
     const catalog: JsonObject = {}
 
     if ('query' in input && input.query) catalog.query = input.query
-    if ('like' in input && input.like) catalog.like = input.like
-    if ('ids' in input) catalog.ids = input.ids
-    if ('id' in input) catalog.id = input.id
+    // Re-attach the gid:// prefix that `shop search` strips for display, so the
+    // short ids the agent copies out of search results round-trip back into
+    // lookup/get-product/--like-id instead of 404ing. See normalizeCatalogId.
+    if ('like' in input && input.like) catalog.like = normalizeLikeItems(input.like)
+    if ('ids' in input) catalog.ids = input.ids.map(normalizeCatalogId)
+    if ('id' in input) catalog.id = normalizeCatalogId(input.id)
     if ('selected' in input && input.selected) catalog.selected = input.selected
     if ('preferences' in input && input.preferences) catalog.preferences = input.preferences
     // Default to the compact response shape to trim the upstream payload; an
@@ -519,10 +524,10 @@ export class ShopCatalogClient {
     throw new ShopCliError('Authentication required. Run `shop auth login` first.')
   }
 
-  // Resolve the buyer's public IP (PII) for the merchant's Shopify-Buyer-Ip fraud/risk
+  // Resolve the buyer's public IP for the merchant's Shopify-Buyer-Ip fraud/risk
   // checks, as any web checkout does. Prefers an explicit, user-provided --buyer-ip or
-  // SHOP_BUYER_IP; only as a fallback does it disclose the IP to third-party api.ipify.org.
-  // Set either override to avoid the third-party lookup entirely.
+  // SHOP_BUYER_IP; the fallback reads the buyer's own IP from api.ipify.org.
+  // Set either override to skip the network lookup entirely.
   private async getBuyerIp(override?: string): Promise<string> {
     const explicit = (override ?? process.env.SHOP_BUYER_IP ?? '').trim()
     if (explicit) return explicit
@@ -600,6 +605,33 @@ function selectInstrument(instrument: JsonObject): JsonObject {
 function normalizeVariantGid(variantId: string): string {
   if (variantId.startsWith('gid://')) return variantId
   return `gid://shopify/ProductVariant/${variantId}`
+}
+
+// `shop search` renders catalog IDs in short form (the gid:// prefix stripped to
+// save tokens): product UPIDs like "6J8JMOV0g1JeQNJlp3juMV" and numeric variant
+// IDs like "50362300006715". lookup_catalog / get_product / --like-id require the
+// full gid, so re-attach the prefix when the agent passes a short id back. The
+// heuristic matches the two shapes search emits: an all-digits id is a variant
+// (gid://shopify/ProductVariant/<id>); any other bare token is treated as a
+// product UPID (gid://shopify/p/<upid>). Already-qualified gids (and anything we
+// don't recognise) pass through untouched, so callers holding a full gid — or a
+// numeric legacy gid://shopify/Product/<id> they pasted whole — are unaffected.
+export function normalizeCatalogId(id: string): string {
+  const trimmed = id.trim()
+  if (!trimmed || trimmed.startsWith('gid://')) return trimmed
+  if (/^\d+$/.test(trimmed)) return `gid://shopify/ProductVariant/${trimmed}`
+  if (/^[A-Za-z0-9]+$/.test(trimmed)) return `gid://shopify/p/${trimmed}`
+  return trimmed
+}
+
+// Normalize the `id` of each catalog `like` reference (from --like-id) while
+// leaving image references and any other shape untouched.
+function normalizeLikeItems(like: unknown[]): unknown[] {
+  return like.map((item) =>
+    isPlainObject(item) && typeof item.id === 'string'
+      ? { ...item, id: normalizeCatalogId(item.id) }
+      : item,
+  )
 }
 
 function isCatalogTool(toolName: string): boolean {

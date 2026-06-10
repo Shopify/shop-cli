@@ -6,7 +6,7 @@ import { describe, it } from 'node:test'
 import { expect, fn } from './harness.js'
 
 import { COUNTRY_ACCOUNT, GLOBAL_CATALOG_MCP_URL } from '../src/constants.js'
-import { ShopCatalogClient } from '../src/shop-client.js'
+import { ShopCatalogClient, normalizeCatalogId } from '../src/shop-client.js'
 import { createFetchMock, createStore, jsonResponse, readJsonBody } from './test-utils.js'
 
 describe('global catalog', () => {
@@ -408,5 +408,95 @@ describe('global catalog', () => {
 
     expect(stderr.write).not.toHaveBeenCalled()
     expect(names).toEqual(['search_catalog', 'lookup_catalog', 'get_product'])
+  })
+})
+
+describe('short catalog id normalization', () => {
+  it('re-attaches the gid prefix to the short ids `shop search` renders', () => {
+    // Product UPID (base62) -> product gid; numeric -> variant gid.
+    expect(normalizeCatalogId('726UZpN2PiLLZ1MYfYRCHm')).toBe('gid://shopify/p/726UZpN2PiLLZ1MYfYRCHm')
+    expect(normalizeCatalogId('50362300006715')).toBe('gid://shopify/ProductVariant/50362300006715')
+  })
+
+  it('passes already-qualified gids (and unknown shapes) through untouched', () => {
+    expect(normalizeCatalogId('gid://shopify/p/abc')).toBe('gid://shopify/p/abc')
+    expect(normalizeCatalogId('gid://shopify/ProductVariant/1')).toBe('gid://shopify/ProductVariant/1')
+    expect(normalizeCatalogId('gid://shopify/Product/67890')).toBe('gid://shopify/Product/67890')
+  })
+
+  it('lookup normalizes each short id before calling the catalog', async () => {
+    let body: { params: { arguments: { catalog: { ids?: unknown } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.lookupCatalog({ ids: ['726UZpN2PiLLZ1MYfYRCHm', '50362300006715', 'gid://shopify/p/keep'] })
+
+    expect(body?.params.arguments.catalog.ids).toEqual([
+      'gid://shopify/p/726UZpN2PiLLZ1MYfYRCHm',
+      'gid://shopify/ProductVariant/50362300006715',
+      'gid://shopify/p/keep',
+    ])
+  })
+
+  it('get_product normalizes a short product id before calling the catalog', async () => {
+    let body: { params: { arguments: { catalog: { id?: unknown } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: {} } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.getProduct({ id: '726UZpN2PiLLZ1MYfYRCHm' })
+
+    expect(body?.params.arguments.catalog.id).toBe('gid://shopify/p/726UZpN2PiLLZ1MYfYRCHm')
+  })
+
+  it('--like-id short ids are normalized, image references are left intact', async () => {
+    let body: { params: { arguments: { catalog: { like?: unknown } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.searchCatalog({
+      like: [{ id: '50362300006715' }, { image: { content_type: 'image/jpeg', data: 'abc' } }],
+    })
+
+    expect(body?.params.arguments.catalog.like).toEqual([
+      { id: 'gid://shopify/ProductVariant/50362300006715' },
+      { image: { content_type: 'image/jpeg', data: 'abc' } },
+    ])
+  })
+})
+
+describe('currency context parity for lookup and get-product', () => {
+  it('lookup forwards --currency as context.currency', async () => {
+    let body: { params: { arguments: { catalog: { context?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.lookupCatalog({ ids: ['gid://shopify/p/abc'], country: 'GB', currency: 'GBP' })
+
+    expect(body?.params.arguments.catalog.context).toMatchObject({ address_country: 'GB', currency: 'GBP' })
+  })
+
+  it('get_product forwards --currency as context.currency', async () => {
+    let body: { params: { arguments: { catalog: { context?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: {} } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.getProduct({ id: 'gid://shopify/p/abc', country: 'GB', currency: 'GBP' })
+
+    expect(body?.params.arguments.catalog.context).toMatchObject({ address_country: 'GB', currency: 'GBP' })
   })
 })

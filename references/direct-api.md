@@ -22,7 +22,7 @@ POST https://accounts.shop.app/oauth/device
 Content-Type: application/x-www-form-urlencoded
 
 client_id=5c733ab2-1903-400a-891e-7ba20c09e2a3
-scope=openid orders email personal_agent ucp:scopes:checkout_session
+scope=openid email personal_agent
 device_name=<short agent name>
 ```
 
@@ -69,7 +69,6 @@ grant_type=urn:ietf:params:oauth:grant-type:token-exchange
 subject_token=<access_token>
 subject_token_type=urn:ietf:params:oauth:token-type:access_token
 resource=https://{shop_domain}/
-scope=ucp:scopes:checkout_session personal_agent
 client_id=5c733ab2-1903-400a-891e-7ba20c09e2a3
 ```
 

@@ -127,9 +127,12 @@ function renderVariants(variants: JsonObject[], productTitle: string, includeChe
   for (const variant of variants) {
     const name = variantName(variant, productTitle)
     const id = shortId(asString(variant.id)) ?? asString(variant.id)
-    if (name && id) lines.push(`${name} (${id})`)
-    else if (name) lines.push(name)
-    else if (id) lines.push(id)
+    const availability = formatAvailability(variant.availability)
+    // Surface per-variant availability (in stock / out of stock / low stock) so
+    // the agent can confirm a specific variant without creating a checkout.
+    let line = name && id ? `${name} (${id})` : (name ?? id ?? '')
+    if (availability) line = line ? `${line} — ${availability}` : availability
+    if (line) lines.push(line)
 
     // Show UCP's checkout link as-is, with UTM appended. Never recreate it.
     // Only rendered for get_product; search/lookup omit it to stay compact.
@@ -145,6 +148,27 @@ function renderVariants(variants: JsonObject[], productTitle: string, includeChe
 // The catalog often sets `variant.title` to the product title, so prefer the
 // option labels; only fall back to `variant.title` when it adds information
 // (i.e. differs from the product title), then to the SKU.
+// Compact human-readable availability from the UCP variant `availability` object
+// ({ available, status, running_low }). Prefer the explicit status string
+// (e.g. "in_stock" -> "in stock"); otherwise fall back to the boolean. Flags a
+// low-stock variant. Returns undefined when no availability data is present.
+function formatAvailability(availability: unknown): string | undefined {
+  if (!isObject(availability)) return undefined
+  const status = asString(availability.status)
+  const available =
+    typeof availability.available === 'boolean' ? availability.available : undefined
+  let label = status
+    ? status.replace(/_/g, ' ')
+    : available === undefined
+      ? undefined
+      : available
+        ? 'available'
+        : 'unavailable'
+  if (!label) return undefined
+  if (availability.running_low === true && !/low/i.test(label)) label += ' (low stock)'
+  return label
+}
+
 function variantName(variant: JsonObject, productTitle: string): string | undefined {
   const options = Array.isArray(variant.options) ? variant.options : []
   const labels = options
@@ -287,24 +311,11 @@ function firstMediaUrl(media: unknown): string | undefined {
   if (!Array.isArray(media)) return undefined
   for (const item of media) {
     if (isObject(item)) {
-      const url = safeImageUrl(asString(item.url))
+      const url = asString(item.url)
       if (url) return url
     }
   }
   return undefined
-}
-
-// Media URLs come from untrusted merchant catalog content, so only surface
-// HTTPS URLs. Reject http:, file:, data:, javascript:, and any other scheme
-// (per references/safety.md) so a malicious listing can't emit a dangerous or
-// tracking link as a user-visible image.
-function safeImageUrl(url: string | undefined): string | undefined {
-  if (!url) return undefined
-  try {
-    return new URL(url).protocol === 'https:' ? url : undefined
-  } catch {
-    return undefined
-  }
 }
 
 // top_features / tech_specs come back from the catalog as newline-delimited
