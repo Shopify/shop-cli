@@ -2,10 +2,11 @@ import {
   ACCESS_TOKEN_ACCOUNT,
   COUNTRY_ACCOUNT,
   DEVICE_ID_ACCOUNT,
+  PENDING_DEVICE_AUTH_ACCOUNT,
   REFRESH_TOKEN_ACCOUNT,
   SHOP_AGENT_SERVICE,
 } from './constants.js'
-import type { SecretStore } from './types.js'
+import type { PendingDeviceAuth, SecretStore } from './types.js'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
@@ -119,7 +120,35 @@ export async function clearStoredAuth(store: SecretStore): Promise<void> {
     store.delete(REFRESH_TOKEN_ACCOUNT),
     store.delete(DEVICE_ID_ACCOUNT),
     store.delete(COUNTRY_ACCOUNT),
+    store.delete(PENDING_DEVICE_AUTH_ACCOUNT),
   ])
+}
+
+// Device-authorization is a two-step flow: `auth device-code` emits the sign-in
+// URL and stashes the device_code here; `auth poll` reads it back to exchange
+// for tokens. Persisting it (rather than holding it in a long-lived polling
+// process) is what lets the agent return control to the user between turns.
+export async function savePendingDeviceAuth(
+  store: SecretStore,
+  pending: PendingDeviceAuth,
+): Promise<void> {
+  await store.set(PENDING_DEVICE_AUTH_ACCOUNT, JSON.stringify(pending))
+}
+
+export async function loadPendingDeviceAuth(store: SecretStore): Promise<PendingDeviceAuth | null> {
+  const raw = await store.get(PENDING_DEVICE_AUTH_ACCOUNT)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as PendingDeviceAuth
+    if (!parsed?.deviceCode) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export async function clearPendingDeviceAuth(store: SecretStore): Promise<void> {
+  await store.delete(PENDING_DEVICE_AUTH_ACCOUNT)
 }
 
 export async function getOrCreateDeviceId(

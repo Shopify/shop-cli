@@ -5,6 +5,7 @@ import {
   ACCESS_TOKEN_ACCOUNT,
   COUNTRY_ACCOUNT,
   DEVICE_ID_ACCOUNT,
+  PENDING_DEVICE_AUTH_ACCOUNT,
   REFRESH_TOKEN_ACCOUNT,
 } from '../src/constants.js'
 import { AuthClient } from '../src/auth.js'
@@ -73,6 +74,116 @@ describe('auth', () => {
     })
     await expect(auth.login()).resolves.toEqual({ accessToken: 'access', refreshToken: 'refresh' })
     expect(events).toEqual(['ABCD'])
+    await expect(store.get(ACCESS_TOKEN_ACCOUNT)).resolves.toBe('access')
+  })
+
+  it('two-step device-code then poll stores tokens without a blocking process', async () => {
+    const store = createStore()
+    const events: string[] = []
+    let authorized = false
+    const fetchMock = createFetchMock((url) => {
+      if (url.endsWith('/device')) {
+        return jsonResponse({
+          device_code: 'device-code',
+          user_code: 'ABCD',
+          verification_uri_complete: 'https://shop.app/device',
+          expires_in: 600,
+          interval: 5,
+        })
+      }
+      if (url.endsWith('/token')) {
+        return authorized
+          ? jsonResponse({ access_token: 'access', refresh_token: 'refresh' })
+          : jsonResponse({ error: 'authorization_pending' })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    })
+
+    const auth = new AuthClient({
+      fetch: fetchMock,
+      store,
+      onDeviceCode: (message) => {
+        events.push(message.verificationUriComplete)
+      },
+    })
+
+    // Phase 1 returns immediately (no polling) and persists pending state.
+    const message = await auth.startDeviceAuthorization()
+    expect(message.verificationUriComplete).toBe('https://shop.app/device')
+    expect(events).toEqual(['https://shop.app/device'])
+    await expect(store.get(PENDING_DEVICE_AUTH_ACCOUNT)).resolves.toEqual(
+      expect.stringContaining('device-code'),
+    )
+    await expect(store.get(ACCESS_TOKEN_ACCOUNT)).resolves.toBeNull()
+
+    // Phase 2 before the user finishes: re-runnable `pending`, no tokens yet.
+    await expect(auth.completeDeviceAuthorization()).resolves.toEqual({ status: 'pending' })
+    await expect(store.get(ACCESS_TOKEN_ACCOUNT)).resolves.toBeNull()
+
+    // After the user authorizes, a fresh poll stores tokens and clears pending.
+    authorized = true
+    await expect(auth.completeDeviceAuthorization()).resolves.toEqual({
+      status: 'authenticated',
+      tokens: { accessToken: 'access', refreshToken: 'refresh' },
+    })
+    await expect(store.get(ACCESS_TOKEN_ACCOUNT)).resolves.toBe('access')
+    await expect(store.get(REFRESH_TOKEN_ACCOUNT)).resolves.toBe('refresh')
+    await expect(store.get(PENDING_DEVICE_AUTH_ACCOUNT)).resolves.toBeNull()
+  })
+
+  it('poll reports no_pending when device-code was never started', async () => {
+    const store = createStore()
+    const fetchMock = createFetchMock(() => {
+      throw new Error('poll should not hit the network without pending state')
+    })
+    const auth = new AuthClient({ fetch: fetchMock, store })
+    await expect(auth.completeDeviceAuthorization()).resolves.toEqual({ status: 'no_pending' })
+  })
+
+  it('supports CLI device-code then poll via the auth commands', async () => {
+    const { createProgram } = await import('../src/cli.js')
+    const store = createStore()
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
+    let authorized = false
+    const fetchMock = createFetchMock((url) => {
+      if (url.endsWith('/userinfo')) return jsonResponse({ sub: 'user-1', email: 'buyer@example.com' })
+      if (url.endsWith('/device')) {
+        return jsonResponse({
+          device_code: 'device-code',
+          user_code: 'ABCD',
+          verification_uri_complete: 'https://shop.app/device',
+          expires_in: 600,
+          interval: 5,
+        })
+      }
+      if (url.endsWith('/token')) {
+        return authorized
+          ? jsonResponse({ access_token: 'access', refresh_token: 'refresh' })
+          : jsonResponse({ error: 'authorization_pending' })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    })
+    const base = {
+      fetch: fetchMock,
+      store,
+      stdout,
+      stderr,
+      exit: ((code: number) => {
+        throw new Error(`exit ${code}`)
+      }) as never,
+    }
+
+    await createProgram(base).parseAsync(['node', 'shop', 'auth', 'device-code', '--device-name', 'Openclaw'])
+    expect(stdout.write).toHaveBeenLastCalledWith(expect.stringContaining('https://shop.app/device'))
+    await expect(store.get(ACCESS_TOKEN_ACCOUNT)).resolves.toBeNull()
+
+    await createProgram(base).parseAsync(['node', 'shop', 'auth', 'poll'])
+    expect(stdout.write).toHaveBeenLastCalledWith(expect.stringContaining('"status": "pending"'))
+
+    authorized = true
+    await createProgram(base).parseAsync(['node', 'shop', 'auth', 'poll'])
+    expect(stdout.write).toHaveBeenLastCalledWith(expect.stringContaining('"authenticated": true'))
     await expect(store.get(ACCESS_TOKEN_ACCOUNT)).resolves.toBe('access')
   })
 
