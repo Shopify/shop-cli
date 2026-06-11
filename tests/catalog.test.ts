@@ -51,6 +51,32 @@ describe('global catalog', () => {
     })
   })
 
+  it('sends ships_from as a list of origin objects', async () => {
+    let body: { params: { arguments: { catalog: { filters?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.searchCatalog({ query: 'coffee mug', country: 'US', shipsFrom: ['US', 'CA'] })
+
+    expect(body?.params.arguments.catalog.filters?.ships_from).toEqual([{ country: 'US' }, { country: 'CA' }])
+  })
+
+  it('forwards a pagination cursor alongside the limit', async () => {
+    let body: { params: { arguments: { catalog: { pagination?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.searchCatalog({ query: 'coffee mug', country: 'US', limit: 8, cursor: 'CURSOR_ABC' })
+
+    expect(body?.params.arguments.catalog.pagination).toEqual({ limit: 8, cursor: 'CURSOR_ABC' })
+  })
+
   it('identifies the CLI as the caller via the agent-source header', async () => {
     let headers: Record<string, string> | undefined
     const fetchMock = createFetchMock(async (url, init) => {
@@ -426,6 +452,31 @@ describe('global catalog', () => {
     await expect(
       createProgram(base).parseAsync(['node', 'shop', 'search', 'boots', '--limit', '12abc']),
     ).rejects.toThrow()
+  })
+
+  it('maps --ships-from comma list and --cursor onto the catalog request', async () => {
+    const { createProgram } = await import('../src/cli.js')
+    const stdout = { write: fn() }
+    const stderr = { write: fn() }
+    let body: { params: { arguments: { catalog: { filters?: Record<string, unknown>; pagination?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+
+    await createProgram({
+      fetch: fetchMock,
+      store: createStore(),
+      stdout,
+      stderr,
+      exit: ((code: number) => {
+        throw new Error(`exit ${code}`)
+      }) as never,
+    }).parseAsync(['node', 'shop', 'search', 'coffee mug', '--ships-from', 'US,CA', '--cursor', 'CURSOR_ABC', '--limit', '8'])
+
+    expect(stderr.write).not.toHaveBeenCalled()
+    expect(body?.params.arguments.catalog.filters?.ships_from).toEqual([{ country: 'US' }, { country: 'CA' }])
+    expect(body?.params.arguments.catalog.pagination).toEqual({ limit: 8, cursor: 'CURSOR_ABC' })
   })
 
   it('supports unified CLI search plus catalog lookup and get-product', async () => {

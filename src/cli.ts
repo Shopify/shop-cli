@@ -50,7 +50,8 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .description('Search the Shopify global catalog by text, similar items (--like-id), or image (--image)')
     .argument('[query]', 'Search query (optional when using --like-id or --image)')
     .option('--country <code>', 'Buyer country')
-    .option('-l, --limit <number>', 'Result limit, 1-50', parseLimit)
+    .option('-l, --limit <number>', 'Results per page, 1-50 (keep small; 6-8 is plenty, large pages burn tokens)', parseLimit)
+    .option('--cursor <cursor>', 'Pagination cursor from a previous search response (re-run the same query to fetch the next page)')
     .option('--min-price <minorUnits>', 'Minimum price in minor currency units', parsePrice)
     .option('--max-price <minorUnits>', 'Maximum price in minor currency units', parsePrice)
     .option('--currency <code>', 'Currency signal')
@@ -58,7 +59,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .option('--intent <text>', 'Buyer intent context')
     .option('--include-unavailable', 'Include unavailable products')
     .option('--condition <list>', 'Comma-separated conditions, e.g. new,secondhand', commaList)
-    .option('--ships-from <code>', 'Merchant origin country')
+    .option('--ships-from <list>', 'Comma-separated merchant origin countries (ISO2), e.g. US,CA', commaList)
     .option('--ships-to <code>', 'Filter to products that ship to this country (ISO alpha-2). Also localizes the catalog context to this country unless --country is set (required for the filter to be enforced).')
     .option('--ships-to-region <code>', 'ships-to region (requires --ships-to)')
     .option('--ships-to-postal <code>', 'ships-to postal code (requires --ships-to)')
@@ -78,6 +79,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
           like: buildLike(options.likeId, options.image),
           country: options.country,
           limit: options.limit,
+          cursor: options.cursor,
           minPrice: options.minPrice,
           maxPrice: options.maxPrice,
           currency: options.currency,
