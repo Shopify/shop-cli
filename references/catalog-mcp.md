@@ -78,7 +78,12 @@ Every tool call includes:
           "available": true,
           "ships_to": { "country": "US" },
           "price": { "max": 15000 },
-          "condition": ["new"]
+          "condition": ["new"],
+          "attributes": [
+            { "name": "Color", "values": ["White", "Blue"] },
+            { "name": "Size", "values": ["M"] },
+            { "name": "Target gender", "values": ["Female"] }
+          ]
         },
         "view": "compact"
       }
@@ -97,6 +102,12 @@ Important fields:
 - `catalog.filters.price`: minor currency units, e.g. `15000` means `$150.00`.
 - `catalog.filters.condition`: `new` and/or `secondhand`.
 - `catalog.filters.shop_ids` / `catalog.filters.categories`: restrict to shops or taxonomy categories.
+- `catalog.filters.attributes`: Shopify taxonomy attribute filters, as an array of `{ name, values }` entries. The CLI's `--color`, `--size`, and `--gender` map onto this single array. Semantics:
+  - **Supported names (exact, case-insensitive):** `Color`, `Size`, `Target gender`. These map to the index fields `predicted_attributes_primary_colors`, `predicted_attributes_sizes`, and `predicted_attributes_genders_keyword` respectively.
+  - **Combine logic:** values *within* one entry are OR'd; *separate* entries are AND'd (e.g. White-or-Blue **and** size M **and** Female).
+  - **Limits:** at most 25 attribute entries per request, at most 50 values per entry.
+  - **Unknown names** (e.g. `Material`) are not an error — they are silently dropped and reported back as an `info`/`not_found` entry in `result.messages[]`. The CLI surfaces these as a `_Not found: …_` line.
+  - **Known data caveat:** filtering by a color (notably `White`) can still surface products whose first/featured variant is a different color, because a product matches if *any* of its variants matches and the catalog path does not yet re-order to the matched variant. Treat color results as best-effort; confirm the exact variant via `get_product` before checkout.
 - `catalog.view`: predefined output shape, e.g. `"compact"` for a trimmed payload or `"offer"` for comparison shopping. The CLI defaults to `compact`. Note that `compact` still includes `metadata` (top_features, tech_specs), `rating`, and variant `options`; `top_features` and `tech_specs` are returned as newline-delimited strings, not arrays.
 - `catalog.pagination.limit`: 1-50; global catalog does not support cursor pagination yet.
 

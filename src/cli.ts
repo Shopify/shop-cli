@@ -64,6 +64,9 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .option('--ships-to-postal <code>', 'ships-to postal code (requires --ships-to)')
     .option('--shop-id <id...>', 'Filter to shop IDs')
     .option('--category <id...>', 'Filter to taxonomy category IDs')
+    .option('--color <list>', 'Comma-separated color attribute values, e.g. White,Blue', commaList)
+    .option('--size <list>', 'Comma-separated size attribute values, e.g. M,L', commaList)
+    .option('--gender <list>', 'Comma-separated target gender attribute values, e.g. Female,Male', commaList)
     .option('--like-id <id...>', 'Find similar items by product or variant ID')
     .option('--image <path>', 'Find similar items by image file path (or inline <mime>:<base64>)')
     .option('--view <name>', 'Catalog response view')
@@ -87,6 +90,9 @@ export function createProgram(deps: CliDependencies = {}): Command {
           shipsTo: buildShipsTo(options.shipsTo, options.shipsToRegion, options.shipsToPostal),
           shopIds: options.shopId,
           categories: options.category,
+          color: options.color,
+          size: options.size,
+          gender: options.gender,
           view: options.view,
         })
       })
