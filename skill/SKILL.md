@@ -42,8 +42,8 @@ Every shopping conversation follows this order. Each step links to its rules bel
 global                   --country <ISO2> (context signal, NOT a ships-to filter)
                          --format md|json (default to md; be STRONGLY averse to using json - results are huge and it burns lots of tokens)
 search [query]           --ships-to <ISO2> [--ships-to-region, --ships-to-postal]
-                         --limit 1-50, --min-price/--max-price (minor units; 15000 = $150.00)
-                         --condition new,secondhand, --ships-from <ISO2> (default to new)
+                         --limit 1-50 (keep small), --cursor <c> (next page), --min/--max-price (minor units; 15000 = $150.00)
+                         --condition new,secondhand (default new), --ships-from <ISO2,...> (comma list)
                          --shop-id <id...>, --category <id...>, --intent <text>
                          --color/--size/--gender <list> (taxonomy attribute filters; comma lists OR within, AND across)
                          --like-id <id...> (similar; product gid only), --image ./photo.jpg
@@ -109,7 +109,7 @@ Manual token exchange, only when the CLI cannot be installed: [catalog-mcp.md](r
 - Before searching, know the buyer's **country and currency** (ask if you don't have them) and pass both via `--country`/`--currency` on every catalog call so prices localize consistently.
 - Search broad first, then refine with filters or alternate terms. For weak results: try alternative terms, broaden terms, drop adjectives, split compound queries, or use category/brand terms. The Shop catalog is HUGE so query expansion helps a lot! Aim to surface 6–8 products per request.
 - NEVER fall back to web search unless explicitly requested by the user.
-- No cursor pagination exists — re-search with different inputs to see more.
+- Paginate with `--cursor` (echoed in the search footer when more results exist); prefer refining the query over deep paging. Keep `--limit` small — 50 is the max but burns tokens.
 - Ignore `eligible.native_checkout: false`; you can still order the item.
 
 **Similar items:**
