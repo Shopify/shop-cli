@@ -85,7 +85,7 @@ shop orders search --type reorder --query "coffee"
 ### Auth
 ```bash
 shop auth status
-shop auth device-code --device-name "Joey McLobsterface"
+shop auth device-code --device-name "<your name> - <device>"   # e.g. "Max - Mac Mini"
 shop auth poll
 shop auth logout
 ```
