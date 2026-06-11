@@ -4,6 +4,13 @@ export const DEFAULT_COUNTRY = 'US'
 export const DEFAULT_PROFILE_URL =
   'https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json'
 export const GLOBAL_CATALOG_MCP_URL = 'https://catalog.shopify.com/api/ucp/mcp'
+// Self-asserted caller attribution sent on every outbound MCP request so the
+// catalog/UCP endpoints can identify Shop CLI traffic server-side (notably the
+// unauthenticated global-catalog calls, which otherwise collapse into one
+// anonymous bucket). Analytics/funnel only — it is spoofable, so it must never
+// be used for trust, fraud, or rate-limiting decisions.
+export const AGENT_SOURCE_HEADER = 'X-Shopify-Agent-Source'
+export const AGENT_SOURCE = 'shop-cli'
 // Authenticated global-catalog access uses a brokered RFC 8693 token exchange:
 // audience=api.shopify.com + requested_token_type=...access_token returns a
 // Global API token that catalog.shopify.com accepts as a Bearer. (Distinct from

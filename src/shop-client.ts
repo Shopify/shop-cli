@@ -1,5 +1,7 @@
 import {
   ACCESS_TOKEN_ACCOUNT,
+  AGENT_SOURCE,
+  AGENT_SOURCE_HEADER,
   CLIENT_ID,
   DEFAULT_COUNTRY,
   DEFAULT_PROFILE_URL,
@@ -373,7 +375,10 @@ export class ShopCatalogClient {
   ): Promise<unknown> {
     const response = await this.fetchImpl(endpoint, {
       method: 'POST',
-      headers: jsonHeaders(headers),
+      // Tag every MCP request with the CLI as the caller so the catalog/UCP
+      // endpoints can attribute Shop CLI traffic server-side. Spread the
+      // caller's headers last so an explicit override always wins.
+      headers: jsonHeaders({ [AGENT_SOURCE_HEADER]: AGENT_SOURCE, ...headers }),
       body: JSON.stringify({
         jsonrpc: '2.0',
         method: 'tools/call',

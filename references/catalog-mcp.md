@@ -7,7 +7,10 @@ Endpoint:
 ```text
 POST https://catalog.shopify.com/api/ucp/mcp
 Content-Type: application/json
+X-Shopify-Agent-Source: shop-cli
 ```
+
+The `shop` CLI sends `X-Shopify-Agent-Source: shop-cli` on every MCP request so Shopify can attribute its traffic (including unauthenticated global-catalog calls) server-side. It is self-asserted analytics metadata only — it is not used for auth, trust, or rate limiting. Set the same header when calling the endpoint by hand if you want your calls attributed the same way.
 
 ## Authentication (optional, preferred)
 
