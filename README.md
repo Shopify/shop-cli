@@ -1,6 +1,14 @@
 # Shop CLI
 
-Personal shopping CLI for Shop catalog search, checkout, and order workflows.
+Personal shopping CLI for the Shop catalog: search millions of stores, look up products, sign in to your Shop account, build and complete UCP checkouts, and search your orders for tracking, returns, and reorders.
+
+It talks to the Shopify Global Catalog over MCP and to Shop's auth, checkout, and orders APIs. Tokens are stored in your OS secret store via `keytar`.
+
+## Companion to the Shop skill
+
+This CLI is the companion to the **Shop skill**, the agent-facing playbook that drives the end-to-end shopping conversation. The skill calls these commands under the hood and documents every command, flag, and workflow in full.
+
+The skill lives at **https://shop.app/SKILL.md** — see it for the complete reference.
 
 ## Install
 
@@ -14,72 +22,28 @@ Or with npm:
 npm install --global @shopify/shop-cli
 ```
 
+Requires Node.js >= 20.
+
 ## Usage
 
 ```bash
 shop --help
+shop auth status
 shop search "trail running shoes" --limit 10
 shop catalog lookup gid://shopify/ProductVariant/50362300006715
-shop auth login
-shop auth status
+shop orders search --type recent
 ```
 
 ## Commands
 
-### Search catalog
+- `shop search` — search the catalog by text, similar items (`--like-id`), or image (`--image`).
+- `shop catalog lookup` / `shop catalog get-product` — look up IDs you already hold and fetch full product detail.
+- `shop auth` — sign in (`login`, or the non-blocking `device-code` + `poll`), check `status`, or `logout`.
+- `shop checkout` — `create`, `update`, and `complete` a UCP checkout on the merchant domain (`complete` requires `--confirm`).
+- `shop orders search` — search recent orders, tracking, order info, returns, and reorder candidates.
+- `shop config` — persist CLI preferences such as a default country.
 
-```bash
-shop search "black crewneck sweater" --limit 10
-shop search "boots" --ships-to US --country US
-shop search --like-id gid://shopify/p/abc123
-shop search --image ./photo.jpg
-```
-
-Useful flags:
-
-```text
---country <ISO2>       Buyer country/catalog context
---ships-to <ISO2>      Filter to products that ship to the destination
---limit <number>       Result limit, 1-50
---format md|json       Output format for catalog results
-```
-
-### Catalog lookup
-
-```bash
-shop catalog lookup <product-or-variant-id...>
-shop catalog get-product <product-or-variant-id>
-```
-
-### Auth
-
-```bash
-shop auth login
-shop auth status
-shop auth logout
-```
-
-### Checkout
-
-```bash
-printf '{"email":"buyer@example.com"}' | \
-  shop checkout create \
-    --shop-domain example.myshopify.com \
-    --variant-id 123 \
-    --quantity 1 \
-    --checkout-stdin
-```
-
-`shop checkout complete` requires `--confirm` and should only be used after confirming the item, variant, quantity, price, shipping, and total cost.
-
-### Orders
-
-```bash
-shop orders search --type recent
-shop orders search --type tracking --query "running shoes"
-shop orders search --type returns --query "jacket"
-shop orders search --type reorder --query "coffee"
-```
+Run `shop <command> --help` for the flags on any command, and see the [Shop skill](https://shop.app/SKILL.md) for the full reference and shopping workflow.
 
 ## Personal-use limits
 
