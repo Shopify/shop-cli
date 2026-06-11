@@ -51,6 +51,56 @@ describe('global catalog', () => {
     })
   })
 
+  it('maps color, size, and gender into a single filters.attributes array', async () => {
+    let body: { params: { arguments: { catalog: { filters?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.searchCatalog({
+      query: 'tshirt',
+      country: 'US',
+      color: ['White', 'Blue'],
+      size: ['M'],
+      gender: ['Female'],
+    })
+
+    // Values within an attribute combine with OR; the three attributes combine with AND.
+    expect(body?.params.arguments.catalog.filters?.attributes).toEqual([
+      { name: 'Color', values: ['White', 'Blue'] },
+      { name: 'Size', values: ['M'] },
+      { name: 'Target gender', values: ['Female'] },
+    ])
+  })
+
+  it('only emits attribute entries for the filters that were provided', async () => {
+    let body: { params: { arguments: { catalog: { filters?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.searchCatalog({ query: 'tee', country: 'US', color: ['Red'] })
+
+    expect(body?.params.arguments.catalog.filters?.attributes).toEqual([{ name: 'Color', values: ['Red'] }])
+  })
+
+  it('omits filters.attributes entirely when no attribute filter is set', async () => {
+    let body: { params: { arguments: { catalog: { filters?: Record<string, unknown> } } } } | undefined
+    const fetchMock = createFetchMock(async (_url, init) => {
+      body = (await readJsonBody(init)) as typeof body
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { products: [] } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store: createStore() })
+
+    await client.searchCatalog({ query: 'tee', country: 'US' })
+
+    expect(body?.params.arguments.catalog.filters?.attributes).toBeUndefined()
+  })
+
   it('does not send ships_to unless explicitly requested', async () => {
     let body: { params: { arguments: { catalog: { filters?: Record<string, unknown> } } } } | undefined
     const fetchMock = createFetchMock(async (_url, init) => {

@@ -45,6 +45,7 @@ search [query]           --ships-to <ISO2> [--ships-to-region, --ships-to-postal
                          --limit 1-50, --min-price/--max-price (minor units; 15000 = $150.00)
                          --condition new,secondhand, --ships-from <ISO2> (default to new)
                          --shop-id <id...>, --category <id...>, --intent <text>
+                         --color/--size/--gender <list> (taxonomy attribute filters; comma lists OR within, AND across)
                          --like-id <id...> (similar; product gid only), --image ./photo.jpg
                          (query is optional when --like-id or --image is given)
 catalog lookup <ids...>  --ships-to <ISO2>, --include-unavailable, --condition
@@ -55,6 +56,7 @@ catalog get-product <id> --select Name=Label, --preference Name
 
 ```bash
 shop search "trail running shoes" --country GB --ships-to GB --ships-from GB --limit 10 --condition new
+shop search "tshirt" --country US --color White --size M --gender Female
 shop search "black crewneck sweater" --like-id gid://shopify/p/abc123
 shop search --image ./photo.jpg
 shop catalog lookup gid://shopify/ProductVariant/50362300006715

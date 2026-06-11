@@ -16,6 +16,17 @@ import { AuthClient } from './auth.js'
 import { getCountry, getOrCreateDeviceId } from './storage.js'
 import type { FetchLike, JsonObject, SecretStore } from './types.js'
 
+// Maps a CatalogSearchInput field to its exact `filters.attributes[].name`
+// display name, as recognized by the catalog API (shop/world#792867):
+//   Color  -> predicted_attributes_primary_colors
+//   Size   -> predicted_attributes_sizes
+//   Gender -> predicted_attributes_genders_keyword (display name "Target gender")
+const ATTRIBUTE_FILTERS: ReadonlyArray<readonly [name: string, key: 'color' | 'size' | 'gender']> = [
+  ['Color', 'color'],
+  ['Size', 'size'],
+  ['Target gender', 'gender'],
+]
+
 export interface ShopCatalogClientOptions {
   fetch?: FetchLike
   store: SecretStore
@@ -42,6 +53,13 @@ export interface CatalogSearchInput {
   shipsTo?: { country: string; region?: string; postalCode?: string }
   shopIds?: string[]
   categories?: string[]
+  // Shopify taxonomy attribute filters. Each maps to a single
+  // `filters.attributes[]` entry; values within an attribute combine with OR,
+  // separate attributes combine with AND. Supported names only: Color, Size,
+  // Target gender (see ATTRIBUTE_FILTERS).
+  color?: string[]
+  size?: string[]
+  gender?: string[]
   view?: string
 }
 
@@ -331,6 +349,16 @@ export class ShopCatalogClient {
     if ('categories' in input && input.categories?.length) {
       filters.categories = input.categories.map((id) => ({ id }))
     }
+    // Color / Size / Gender all ride on the single `filters.attributes` array as
+    // { name, values } entries. The catalog API matches the name case-insensitively
+    // but only recognizes these exact display names; unknown names are dropped and
+    // reported back via result.messages[]. See shop/world#792867.
+    const attributes: JsonObject[] = []
+    for (const [name, key] of ATTRIBUTE_FILTERS) {
+      const values = (input as Record<string, unknown>)[key]
+      if (Array.isArray(values) && values.length) attributes.push({ name, values })
+    }
+    if (attributes.length) filters.attributes = attributes
     if (Object.keys(filters).length > 0) catalog.filters = filters
 
     return catalog
