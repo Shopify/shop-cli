@@ -375,9 +375,6 @@ export class ShopCatalogClient {
   ): Promise<unknown> {
     const response = await this.fetchImpl(endpoint, {
       method: 'POST',
-      // Tag every MCP request with the CLI as the caller so the catalog/UCP
-      // endpoints can attribute Shop CLI traffic server-side. Spread the
-      // caller's headers last so an explicit override always wins.
       headers: jsonHeaders({ [AGENT_SOURCE_HEADER]: AGENT_SOURCE, ...headers }),
       body: JSON.stringify({
         jsonrpc: '2.0',
