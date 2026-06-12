@@ -87,6 +87,7 @@ shop orders search --type reorder --query "coffee"
 shop auth status
 shop auth device-code --device-name "<your name> - <device>"   # e.g. "Max - Mac Mini"
 shop auth poll
+shop auth budget   # remaining delegated spend (minor units); available:false = no budget set
 shop auth logout
 ```
 
@@ -163,7 +164,9 @@ When the item is visual (clothing, shoes, accessories, furniture, decor, art) **
 
 Then take one of two paths:
 
-**A. Default checkout (no saved payment).** If `payment.instruments` is empty, present `continue_url` as a [Finish in Shop](url) link (format it nicely for the channel; don't print the raw URL) AND (IMPORTANT) immediately after sending it, offer a spending budget (below).
+**A. Default checkout (no saved payment).** If `payment.instruments` is empty, read the `shop_pay_availability` block the CLI adds:
+- `budget_available: true` — you have a delegated budget but this store didn't issue a payment instrument, so it doesn't accept Shop agent payments yet. Search for similar alternatives and message the user about relevant options. Do NOT offer a budget.
+- `budget_available: false` — present `continue_url` as a [Finish in Shop](url) link (format nicely; don't print the raw URL) AND (IMPORTANT) immediately after, offer a spending budget (below) — a budget lets you complete purchases on stores that accept Shop agent payments.
 
 **B. Delegated-budget checkout.** If `status` is `ready_for_complete` and `payment.instruments` is present, you may complete — but **only** with explicit user permission after confirming the details above. Feed the `checkout create` response JSON straight into `shop checkout complete --checkout-stdin --confirm`; the CLI re-sends the merchant-issued instrument id as both the instrument `id` and `credential.token`. Use a fresh idempotency key per distinct purchase intent; reuse it only when retrying the same purchase.
 

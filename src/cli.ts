@@ -246,6 +246,15 @@ export function createProgram(deps: CliDependencies = {}): Command {
     })
 
   auth
+    .command('budget')
+    .description('Show the remaining delegated spending budget (minor units). `available: false` means no budget is set.')
+    .action(async () => {
+      await runAction({ stdout, stderr, exit }, async () =>
+        resolveClient(deps, program).budget(),
+      )
+    })
+
+  auth
     .command('logout')
     .description('Delete stored Shop tokens and preferences')
     .action(async () => {
@@ -271,13 +280,15 @@ export function createProgram(deps: CliDependencies = {}): Command {
         if (!options.variantId && !checkout) {
           throw new Error('checkout create requires --variant-id or --checkout-stdin')
         }
-        return resolveClient(deps, program).createCheckout({
+        const client = resolveClient(deps, program)
+        const result = await client.createCheckout({
           shopDomain: options.shopDomain,
           variantId: options.variantId,
           quantity: options.quantity,
           checkout,
           buyerIp: options.buyerIp,
         })
+        return annotateShopPayAvailability(client, result)
       })
     })
 
@@ -289,14 +300,16 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .requiredOption('--checkout-stdin', 'Read checkout update JSON from stdin')
     .option('--buyer-ip <ip>', 'Buyer public IP, forwarded to the merchant for checkout fraud/risk checks (auto-detected via api.ipify.org; override here or with SHOP_BUYER_IP)')
     .action(async (options) => {
-      await runCheckoutAction({ stdout, stderr, exit }, async () =>
-        resolveClient(deps, program).updateCheckout({
+      await runCheckoutAction({ stdout, stderr, exit }, async () => {
+        const client = resolveClient(deps, program)
+        const result = await client.updateCheckout({
           shopDomain: options.shopDomain,
           checkoutId: options.checkoutId,
           checkout: await readJsonFromStdin(deps.stdin ?? process.stdin),
           buyerIp: options.buyerIp,
-        }),
-      )
+        })
+        return annotateShopPayAvailability(client, result)
+      })
     })
 
   checkout
@@ -578,10 +591,32 @@ async function readJsonFromStdin(stdin: NodeJS.ReadStream | AsyncIterable<Buffer
   return parsed as Record<string, unknown>
 }
 
-// Pull the payment instruments out of whatever the caller piped in: either the
-// full create_checkout response ({ payment: { instruments: [...] } }) or a bare
-// payment block ({ instruments: [...] }). complete_checkout must echo these back
-// so the merchant can match the instrument id it issued for this checkout.
+async function annotateShopPayAvailability(
+  client: ShopCatalogClient,
+  checkout: unknown,
+): Promise<unknown> {
+  if (!isObject(checkout)) return checkout
+  const payment = isObject(checkout.payment) ? checkout.payment : undefined
+  const instruments = payment && Array.isArray(payment.instruments) ? payment.instruments : []
+  if (instruments.length > 0) return checkout
+
+  const budget = (await client.budget().catch(() => null)) as Record<string, unknown> | null
+  const shop_pay_availability =
+    budget?.available === true
+      ? {
+          budget_available: true,
+          message:
+            "You have budget remaining to pay for the user, but this store doesn't accept Shop agent payments yet. Search for similar alternatives, then message the user about relevant options.",
+        }
+      : {
+          budget_available: false,
+          message:
+            'No spending budget is set. Offer to set up a budget so you can complete purchases on stores that accept Shop agent payments.',
+        }
+
+  return { ...checkout, shop_pay_availability }
+}
+
 function extractInstruments(checkout: Record<string, unknown>): Record<string, unknown>[] {
   const payment = isObject(checkout.payment) ? checkout.payment : checkout
   const instruments = isObject(payment) ? payment.instruments : undefined

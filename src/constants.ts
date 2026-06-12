@@ -13,6 +13,7 @@ export const USER_AGENT = `shop-cli/${CLI_VERSION}`
 export const GLOBAL_CATALOG_AUDIENCE = 'api.shopify.com'
 export const ACCESS_TOKEN_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token'
 export const TOKEN_EXCHANGE_URL = 'https://shop.app/oauth/token'
+export const PAYMENT_TOKENS_URL = 'https://shop.app/pay/agents/payment_tokens'
 export const SHOP_AGENT_SERVICE = 'shop-agent'
 export const ACCESS_TOKEN_ACCOUNT = 'access_token'
 export const REFRESH_TOKEN_ACCOUNT = 'refresh_token'
@@ -21,6 +22,6 @@ export const COUNTRY_ACCOUNT = 'country'
 // Short-lived device-authorization state persisted between `auth device-code`
 // (emits the sign-in URL) and `auth poll` (exchanges + stores tokens).
 export const PENDING_DEVICE_AUTH_ACCOUNT = 'pending_device_auth'
-export const AUTH_SCOPES = 'openid email personal_agent'
+export const AUTH_SCOPES = 'openid email personal_agent pay:wallet_tokens:read'
 export const UCP_PROFILE =
   'https://shopify.dev/ucp/agent-profiles/2026-04-08/personal_agent.json'
