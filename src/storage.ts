@@ -12,11 +12,22 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+type KeytarApi = Pick<typeof import('keytar'), 'getPassword' | 'setPassword' | 'deletePassword'>
+
 export class KeytarSecretStore implements SecretStore {
-  private keytarPromise: Promise<typeof import('keytar') | null>
+  private keytarPromise: Promise<KeytarApi | null>
 
   constructor(private readonly service = SHOP_AGENT_SERVICE) {
-    this.keytarPromise = import('keytar').catch(() => null)
+    this.keytarPromise = import('keytar')
+      .then((mod) => {
+        const candidate = ((mod as { default?: unknown }).default ?? mod) as Partial<KeytarApi>
+        const usable =
+          typeof candidate.getPassword === 'function' &&
+          typeof candidate.setPassword === 'function' &&
+          typeof candidate.deletePassword === 'function'
+        return usable ? (candidate as KeytarApi) : null
+      })
+      .catch(() => null)
   }
 
   async get(account: string): Promise<string | null> {

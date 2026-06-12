@@ -38,7 +38,7 @@ shop orders search --type recent
 
 - `shop search` — search the catalog by text, similar items (`--like-id`), or image (`--image`).
 - `shop catalog lookup` / `shop catalog get-product` — look up IDs you already hold and fetch full product detail.
-- `shop auth` — sign in (`login`, or the non-blocking `device-code` + `poll`), check `status`, or `logout`.
+- `shop auth` — sign in (`login`, or the non-blocking `device-code` + `poll`), check `status`, read the remaining delegated spending `budget`, or `logout`.
 - `shop checkout` — `create`, `update`, and `complete` a UCP checkout on the merchant domain (`complete` requires `--confirm`).
 - `shop orders search` — search recent orders, tracking, order info, returns, and reorder candidates.
 - `shop config` — persist CLI preferences such as a default country.

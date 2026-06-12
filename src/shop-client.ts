@@ -6,12 +6,20 @@ import {
   ACCESS_TOKEN_TOKEN_TYPE,
   GLOBAL_CATALOG_AUDIENCE,
   GLOBAL_CATALOG_MCP_URL,
+  PAYMENT_TOKENS_URL,
   REFRESH_TOKEN_ACCOUNT,
   TOKEN_EXCHANGE_URL,
   UCP_PROFILE,
 } from './constants.js'
 import { ShopCliError } from './errors.js'
-import { formBody, jsonHeaders, parseJsonResponse, parseTextResponse, withUserAgent } from './http.js'
+import {
+  formBody,
+  jsonHeaders,
+  parseJsonResponse,
+  parseOptionalJsonResponse,
+  parseTextResponse,
+  withUserAgent,
+} from './http.js'
 import { AuthClient } from './auth.js'
 import { getCountry, getOrCreateDeviceId } from './storage.js'
 import type { FetchLike, JsonObject, SecretStore } from './types.js'
@@ -275,6 +283,27 @@ export class ShopCatalogClient {
   async login(): Promise<unknown> {
     await this.auth.login()
     return this.status()
+  }
+
+  async budget(): Promise<unknown> {
+    const accessToken = await this.auth.getValidAccessToken()
+    if (!accessToken) return { authenticated: false }
+    const deviceId = await getOrCreateDeviceId(this.options.store)
+    const response = await this.authenticatedShopFetch(PAYMENT_TOKENS_URL, {
+      accessToken,
+      deviceId,
+      label: 'Fetch payment budget',
+    })
+    if (response.status === 401 || response.status === 403) {
+      return {
+        available: false,
+        reason: response.status === 403 ? 'missing_payment_scope' : 'unauthenticated',
+        message:
+          'This sign-in cannot read a spending budget (the token lacks payment permission). Ask the user to enable purchasing without approval in Shop → Settings → Connections, then run `shop auth login` again to re-authorize.',
+      }
+    }
+    const json = await parseOptionalJsonResponse<JsonObject>(response, 'Fetch payment budget', {})
+    return summarizeBudget(json)
   }
 
   private async catalogInput(
@@ -667,6 +696,63 @@ function normalizeLikeItems(like: unknown[]): unknown[] {
       ? { ...item, id: normalizeCatalogId(item.id) }
       : item,
   )
+}
+
+function summarizeBudget(json: unknown): JsonObject {
+  const root = isPlainObject(json) ? json : {}
+  const tokens = Array.isArray(root.payment_tokens) ? root.payment_tokens : []
+  const first = isPlainObject(tokens[0]) ? tokens[0] : {}
+  const display = isPlainObject(first.display)
+    ? first.display
+    : isPlainObject(root.display)
+      ? root.display
+      : {}
+
+  const available = Boolean(pickString(first.id, first.token, root.token, root.id))
+  if (!available) {
+    return {
+      available: false,
+      message:
+        'No delegated spending budget. Ask the user to enable purchasing without approval in Shop → Settings → Connections.',
+    }
+  }
+
+  const limit = pickAmount(display.limit, first.limit, root.limit)
+  const remaining = pickAmount(display.remaining_amount, first.remaining_amount, root.remaining_amount)
+  const currency = pickString(
+    first.default_currency_code,
+    display.currency,
+    root.default_currency_code,
+    root.currency,
+  )
+  const renewalType = pickString(display.renewal_type, first.renewal_type)
+  const renewsAt = pickString(display.renews_at, first.renews_at)
+  return {
+    available: true,
+    ...(limit !== undefined ? { limit } : {}),
+    ...(remaining !== undefined ? { remaining_amount: remaining } : {}),
+    ...(currency ? { currency } : {}),
+    ...(renewalType ? { renewal_type: renewalType } : {}),
+    ...(renewsAt ? { renews_at: renewsAt } : {}),
+    units: 'minor',
+  }
+}
+
+function pickAmount(...candidates: unknown[]): number | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate
+    if (typeof candidate === 'string' && candidate.trim() !== '' && Number.isFinite(Number(candidate))) {
+      return Number(candidate)
+    }
+  }
+  return undefined
+}
+
+function pickString(...candidates: unknown[]): string | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate
+  }
+  return undefined
 }
 
 function isCatalogTool(toolName: string): boolean {
