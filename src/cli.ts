@@ -4,7 +4,7 @@ import { extname } from 'node:path'
 import { Command } from 'commander'
 
 import { AuthClient } from './auth.js'
-import { COUNTRY_ACCOUNT, DEFAULT_COUNTRY } from './constants.js'
+import { CLI_VERSION, COUNTRY_ACCOUNT, DEFAULT_COUNTRY } from './constants.js'
 import { toErrorMessage } from './errors.js'
 import { renderCatalogResult, renderCheckoutMessages } from './render.js'
 import { ShopCatalogClient } from './shop-client.js'
@@ -38,7 +38,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
   program
     .name('shop')
     .description('Shop personal shopping CLI for catalog search, auth, checkout, and order search')
-    .version('0.1.0')
+    .version(CLI_VERSION)
     .option('--country <code>', 'Buyer country for this call (catalog context signal, not a ships-to filter). Transient; use `shop config set-country` to persist a default.', DEFAULT_COUNTRY)
     .option('--profile-url <url>', 'UCP agent profile URL for global catalog calls')
     .option('--memory-store', 'Use in-memory token storage for tests and dry runs')

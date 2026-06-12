@@ -1,7 +1,5 @@
 import {
   ACCESS_TOKEN_ACCOUNT,
-  AGENT_SOURCE,
-  AGENT_SOURCE_HEADER,
   CLIENT_ID,
   DEFAULT_COUNTRY,
   DEFAULT_PROFILE_URL,
@@ -13,7 +11,7 @@ import {
   UCP_PROFILE,
 } from './constants.js'
 import { ShopCliError } from './errors.js'
-import { formBody, jsonHeaders, parseJsonResponse, parseTextResponse } from './http.js'
+import { formBody, jsonHeaders, parseJsonResponse, parseTextResponse, withUserAgent } from './http.js'
 import { AuthClient } from './auth.js'
 import { getCountry, getOrCreateDeviceId } from './storage.js'
 import type { FetchLike, JsonObject, SecretStore } from './types.js'
@@ -135,8 +133,9 @@ export class ShopCatalogClient {
   private catalogToken?: string
 
   constructor(private readonly options: ShopCatalogClientOptions) {
-    this.fetchImpl = options.fetch ?? fetch
-    this.auth = options.auth ?? new AuthClient({ fetch: this.fetchImpl, store: options.store })
+    const baseFetch = options.fetch ?? fetch
+    this.fetchImpl = withUserAgent(baseFetch)
+    this.auth = options.auth ?? new AuthClient({ fetch: baseFetch, store: options.store })
     this.profileUrl = options.profileUrl ?? DEFAULT_PROFILE_URL
     this.explicitCountry = options.country
   }
@@ -381,7 +380,7 @@ export class ShopCatalogClient {
   ): Promise<unknown> {
     const response = await this.fetchImpl(endpoint, {
       method: 'POST',
-      headers: jsonHeaders({ [AGENT_SOURCE_HEADER]: AGENT_SOURCE, ...headers }),
+      headers: jsonHeaders(headers),
       body: JSON.stringify({
         jsonrpc: '2.0',
         method: 'tools/call',

@@ -6,7 +6,7 @@ import {
   REFRESH_TOKEN_ACCOUNT,
 } from './constants.js'
 import { ShopCliError } from './errors.js'
-import { formBody, parseJsonResponse } from './http.js'
+import { formBody, parseJsonResponse, withUserAgent } from './http.js'
 import {
   clearPendingDeviceAuth,
   loadPendingDeviceAuth,
@@ -79,7 +79,7 @@ export class AuthClient {
   private readonly pollSleepMs?: number
 
   constructor(private readonly options: AuthClientOptions) {
-    this.fetchImpl = options.fetch ?? fetch
+    this.fetchImpl = withUserAgent(options.fetch ?? fetch)
     this.clientId = options.clientId ?? CLIENT_ID
     this.deviceName = options.deviceName ?? DEFAULT_AGENT_NAME
     this.scopes = options.scopes ?? AUTH_SCOPES
