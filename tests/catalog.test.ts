@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { expect, fn } from './harness.js'
 
-import { AGENT_SOURCE, AGENT_SOURCE_HEADER, COUNTRY_ACCOUNT, GLOBAL_CATALOG_MCP_URL } from '../src/constants.js'
+import { COUNTRY_ACCOUNT, GLOBAL_CATALOG_MCP_URL, USER_AGENT } from '../src/constants.js'
 import { ShopCatalogClient, normalizeCatalogId } from '../src/shop-client.js'
 import { createFetchMock, createStore, jsonResponse, readJsonBody } from './test-utils.js'
 
@@ -51,7 +51,7 @@ describe('global catalog', () => {
     })
   })
 
-  it('identifies the CLI as the caller via the agent-source header', async () => {
+  it('identifies the CLI as the caller via the User-Agent header', async () => {
     let headers: Record<string, string> | undefined
     const fetchMock = createFetchMock(async (url, init) => {
       expect(url).toBe(GLOBAL_CATALOG_MCP_URL)
@@ -62,7 +62,8 @@ describe('global catalog', () => {
 
     await client.searchCatalog({ query: 'wireless headphones', country: 'US' })
 
-    expect(headers?.[AGENT_SOURCE_HEADER]).toBe(AGENT_SOURCE)
+    expect(headers?.['User-Agent']).toBe(USER_AGENT)
+    expect(USER_AGENT).toMatch(/^shop-cli\//)
   })
 
   it('maps color, size, and gender into a single filters.attributes array', async () => {

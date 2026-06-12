@@ -1,4 +1,13 @@
+import { USER_AGENT } from './constants.js'
 import { ShopCliError } from './errors.js'
+import type { FetchLike } from './types.js'
+
+export function withUserAgent(fetchImpl: FetchLike): FetchLike {
+  return (url, init = {}) => {
+    const headers = { 'User-Agent': USER_AGENT, ...(init.headers as Record<string, string> | undefined) }
+    return fetchImpl(url, { ...init, headers })
+  }
+}
 
 export async function parseJsonResponse<T>(response: Response, label: string): Promise<T> {
   const text = await response.text()

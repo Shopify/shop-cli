@@ -7,7 +7,7 @@ Endpoint:
 ```text
 POST https://catalog.shopify.com/api/ucp/mcp
 Content-Type: application/json
-X-Shopify-Agent-Source: shop-cli
+User-Agent: shop-cli/0.1.0
 ```
 
 ## Authentication (optional, preferred)
