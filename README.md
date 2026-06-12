@@ -51,6 +51,19 @@ This CLI is for individual end-users only. Building commercial services, resale 
 
 See https://help.shop.app/shop/shopping/personal-agents for accepted and prohibited use.
 
+## Development
+
+```bash
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+## Contributing
+
+Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](./CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before getting started.
+
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. See [LICENSE.md](./LICENSE.md).

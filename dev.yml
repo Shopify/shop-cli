@@ -1,0 +1,6 @@
+name: shop-cli
+# CI's package-manager wrapper checks this before routing npm/pnpm traffic
+# through package-proxy. This package installs only public npm dependencies,
+# so keep installs direct; package-proxy requires auth that public package
+# fetches in this repo do not provide.
+package_proxy: false
