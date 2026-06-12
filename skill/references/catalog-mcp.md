@@ -78,6 +78,7 @@ Every tool call includes:
         "filters": {
           "available": true,
           "ships_to": { "country": "US" },
+          "ships_from": [{ "country": "US" }, { "country": "CA" }],
           "price": { "max": 15000 },
           "condition": ["new"],
           "attributes": [
@@ -99,7 +100,7 @@ Important fields:
 - `catalog.like`: similar search by item IDs or image content. Send only IDs/images the user provided for search; images may contain personal data.
 - `catalog.context`: buyer **signals** for relevance/localization such as `address_country`, `address_region`, `postal_code`, `language`, `currency`, and `intent`. `address_country` is a context signal, not a shipping filter. Pass only signals the user actually provided; never infer or invent them.
 - `catalog.filters.ships_to`: hard **filter** to products that ship to a location. Accepts `country` (ISO 3166-1 alpha-2), `region`, `postal_code`. Critical when shipping eligibility matters. Only set this when you actually want to restrict by destination; it is independent of `context.address_country`.
-- `catalog.filters.ships_from`: filter by merchant origin `country` (ISO 3166-1 alpha-2).
+- `catalog.filters.ships_from`: filter by merchant origin, as a **list** of `{ country }` objects (ISO 3166-1 alpha-2), e.g. `[{ "country": "US" }, { "country": "CA" }]`. Origins combine with OR.
 - `catalog.filters.price`: minor currency units, e.g. `15000` means `$150.00`.
 - `catalog.filters.condition`: `new` and/or `secondhand`.
 - `catalog.filters.shop_ids` / `catalog.filters.categories`: restrict to shops or taxonomy categories.
@@ -110,7 +111,29 @@ Important fields:
   - **Unknown names** (e.g. `Material`) are not an error — they are silently dropped and reported back as an `info`/`not_found` entry in `result.messages[]`. The CLI surfaces these as a `_Not found: …_` line.
   - **Known data caveat:** filtering by a color (notably `White`) can still surface products whose first/featured variant is a different color, because a product matches if *any* of its variants matches and the catalog path does not yet re-order to the matched variant. Treat color results as best-effort; confirm the exact variant via `get_product` before checkout.
 - `catalog.view`: predefined output shape, e.g. `"compact"` for a trimmed payload or `"offer"` for comparison shopping. The CLI defaults to `compact`. Note that `compact` still includes `metadata` (top_features, tech_specs), `rating`, and variant `options`; `top_features` and `tech_specs` are returned as newline-delimited strings, not arrays.
-- `catalog.pagination.limit`: 1-50; global catalog does not support cursor pagination yet.
+- `catalog.pagination.limit`: 1-50 (default 10). Keep it small — large pages burn tokens.
+- `catalog.pagination.cursor`: opaque cursor for the next page. Take it from the previous response's `pagination.cursor` and re-send the **same** query/filters with it; the offset is encoded in the cursor.
+
+### Pagination
+
+A search response includes a `pagination` block:
+
+```json
+{ "has_next_page": true, "total_count": 649, "cursor": "eyJvZmZzZXQiOjEwLCJ0b3RhbF9jb3VudCI6NjQ5fQ" }
+```
+
+When `has_next_page` is true, repeat the request with the returned `cursor` to walk to the next page (no duplicates, steady totals):
+
+```json
+{
+  "catalog": {
+    "query": "coffee mug",
+    "filters": { "available": true, "ships_to": { "country": "US" } },
+    "context": { "address_country": "US", "currency": "USD" },
+    "pagination": { "limit": 8, "cursor": "eyJvZmZzZXQiOjEwLCJ0b3RhbF9jb3VudCI6NjQ5fQ" }
+  }
+}
+```
 
 Similar by ID:
 
@@ -204,7 +227,7 @@ Use `get_product` to inspect options, availability, selected variants, seller do
 
 ## Response Handling
 
-Read `result.structuredContent.products` from search and lookup responses. Read `result.structuredContent.product` from `get_product`.
+Read `result.structuredContent.products` from search and lookup responses. Read `result.structuredContent.product` from `get_product`. Search also returns `result.structuredContent.pagination` (`has_next_page`, `total_count`, `cursor`) — see *Pagination*.
 
 Product variants can include `id`, `price`, `checkout_url`, `availability`, `options`, and `seller` (`name`, `id` = shop GID, `domain`, `url`). Use the variant ID and seller domain for checkout. A variant's `options` is an array of `{ name, label }` (e.g. `[{name:'Color',label:'Black'},{name:'Size',label:'6-12 months'}]`); build its display name by joining the labels (`Black / 6-12 months`). Note `variant.title` is frequently the product title, so prefer the option labels for naming. Products may include `metadata.top_features`, `metadata.tech_specs`, and `metadata.attributes` (ML-inferred), plus `rating`.
 

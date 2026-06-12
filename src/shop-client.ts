@@ -39,6 +39,7 @@ export interface CatalogSearchInput {
   query?: string
   like?: unknown[]
   limit?: number
+  cursor?: string
   country?: string
   region?: string
   postalCode?: string
@@ -49,7 +50,7 @@ export interface CatalogSearchInput {
   maxPrice?: number
   available?: boolean
   condition?: string[]
-  shipsFrom?: string
+  shipsFrom?: string[]
   shipsTo?: { country: string; region?: string; postalCode?: string }
   shopIds?: string[]
   categories?: string[]
@@ -322,7 +323,10 @@ export class ShopCatalogClient {
     catalog.context = context
 
     const filters: JsonObject = {}
-    if ('limit' in input && input.limit) catalog.pagination = { limit: input.limit }
+    const pagination: JsonObject = {}
+    if ('limit' in input && input.limit) pagination.limit = input.limit
+    if ('cursor' in input && input.cursor) pagination.cursor = input.cursor
+    if (Object.keys(pagination).length > 0) catalog.pagination = pagination
     // Availability filter is tri-state:
     //   - property absent (direct client call without specifying) -> default to available-only
     //   - true/false -> restrict to available / unavailable respectively
@@ -339,7 +343,9 @@ export class ShopCatalogClient {
       filters.price = price
     }
     if ('condition' in input && input.condition?.length) filters.condition = input.condition
-    if ('shipsFrom' in input && input.shipsFrom) filters.ships_from = { country: input.shipsFrom }
+    if ('shipsFrom' in input && input.shipsFrom?.length) {
+      filters.ships_from = input.shipsFrom.map((country) => ({ country }))
+    }
     if ('shipsTo' in input && input.shipsTo) {
       const shipsTo: JsonObject = { country: input.shipsTo.country }
       if (input.shipsTo.region) shipsTo.region = input.shipsTo.region

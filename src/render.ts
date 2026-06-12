@@ -48,11 +48,21 @@ export function renderCatalogResult(toolName: string, json: unknown): string {
   const products = Array.isArray(structured.products) ? structured.products : []
   const blocks = products.filter(isObject).map((p) => renderProduct(p as JsonObject, { includeCheckout }))
   const messages = renderMessages(structured.messages)
+  const pagination = renderPagination(structured.pagination)
 
   if (blocks.length === 0) {
-    return messages || '_No products found._'
+    return [messages, pagination].filter(Boolean).join('\n\n') || '_No products found._'
   }
-  return [blocks.join('\n\n---\n\n'), messages].filter(Boolean).join('\n\n')
+  return [blocks.join('\n\n---\n\n'), messages, pagination].filter(Boolean).join('\n\n')
+}
+
+function renderPagination(pagination: unknown): string {
+  if (!isObject(pagination) || pagination.has_next_page !== true) return ''
+  const cursor = asString(pagination.cursor)
+  if (!cursor) return ''
+  const total = typeof pagination.total_count === 'number' ? pagination.total_count : undefined
+  const totalText = total !== undefined ? `~${total.toLocaleString('en-US')} total. ` : ''
+  return `_${totalText}More results: re-run the same search with \`--cursor ${cursor}\` for the next page._`
 }
 
 function renderProduct(product: JsonObject, opts: { includeCheckout: boolean }): string {

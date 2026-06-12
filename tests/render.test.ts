@@ -328,4 +328,29 @@ describe('renderCatalogResult', () => {
     })
     expect(single).toContain('Solo Item')
   })
+
+  it('surfaces the next-page cursor and total when more results exist', () => {
+    const out = renderCatalogResult('search_catalog', {
+      result: {
+        structuredContent: {
+          products: [{ title: 'Mug' }],
+          pagination: { has_next_page: true, total_count: 649, cursor: 'CURSOR_XYZ' },
+        },
+      },
+    })
+    expect(out).toContain('~649 total')
+    expect(out).toContain('--cursor CURSOR_XYZ')
+  })
+
+  it('omits the pagination footer when there is no next page', () => {
+    const out = renderCatalogResult('search_catalog', {
+      result: {
+        structuredContent: {
+          products: [{ title: 'Mug' }],
+          pagination: { has_next_page: false, total_count: 1 },
+        },
+      },
+    })
+    expect(out).not.toContain('--cursor')
+  })
 })
