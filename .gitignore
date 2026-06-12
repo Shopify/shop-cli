@@ -4,4 +4,19 @@ dist/
 *.tgz
 .pnpm-store/
 .test-build/
+coverage/
+
+# Local environment and editor state
+.env
+.env.*
+.vscode/
+.idea/
+
+# Package manager and runtime logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Internal-only local agent instructions
 AGENTS.md
