@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 0
       - uses: shop/setup-javascript-action@main
         with:
-          node-version: '24'
+          node-version-file: package.json
           pnpm-version: 10.28.0
       - run: pnpm install --frozen-lockfile
       - uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1.8.0
