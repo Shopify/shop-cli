@@ -99,10 +99,60 @@ jobs:
         run: |
           echo "registry=https://registry.npmjs.org/" > ~/.npmrc
           echo "//registry.npmjs.org/:_authToken=\${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          echo "@shopify:registry=https://registry.npmjs.org/" >> ~/.npmrc
+
+      - name: Resolve unwrapped npm (bypass package-manager wrappers)
+        run: |
+          # Shopify's npm wrapper enforces install-time policy (minimum_dependency_age) that doesn't apply to `npm version` or `npm publish`; point at the npm bundled with node directly. OIDC auth is driven by ~/.npmrc and `id-token: write`, not by which binary runs.
+          echo "UNWRAPPED_NPM=$(dirname "$(command -v node)")/npm" >> "$GITHUB_ENV"
+
+      - name: Set up .npmrc for publishing
+        run: |
+          # Override project-level .npmrc that points to internal registry
+          if [ -f .npmrc ]; then
+            cp .npmrc .npmrc.backup
+            sed -i.bak 's|@shopify:registry=.*|@shopify:registry=https://registry.npmjs.org/|' .npmrc
+            echo "✅ Updated project .npmrc to use public npm for @shopify packages"
+
+            # Remove backup files created by sed and cp
+            rm -f .npmrc.bak .npmrc.backup
+            echo "✅ Cleaned up backup files"
+          fi
+
+          # Configure git for package tag creation.
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          # Hide the local .npmrc registry override from git so npm version/publish
+          # see a clean source checkout without creating a synthetic commit.
+          if git diff --quiet .npmrc; then
+            echo "ℹ️ No .npmrc changes to hide"
+          else
+            git update-index --assume-unchanged .npmrc
+            echo "✅ Hid local .npmrc publishing override from git status"
+          fi
 
       - name: Publish to npm
         if: ${{ !inputs.dry-run }}
-        run: pnpm publish --no-git-checks --ignore-scripts --tag "$DIST_TAG" --access public
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+
+          VERSION=$(node -p "require('./package.json').version")
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🧪 DRY RUN: Would publish $PACKAGE_NAME@$VERSION with tag $DIST_TAG"
+            exit 0
+          fi
+
+          if "$UNWRAPPED_NPM" view "$PACKAGE_NAME@$VERSION" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "ℹ️ $PACKAGE_NAME@$VERSION already exists on npm; skipping publish"
+            exit 0
+          fi
+
+          "$UNWRAPPED_NPM" publish --tag "$DIST_TAG" --access public --verbose
+          echo "✅ Published $PACKAGE_NAME@$VERSION with tag $DIST_TAG"
         env:
           DIST_TAG: ${{ inputs.tag }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
