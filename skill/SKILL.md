@@ -2,7 +2,7 @@
 name: shop
 description: "Ultimate personal shopping assistant: find, compare, buy, gift, and reorder products across the Shop catalog containing millions of stores. Tracks orders and deliveries for any retailer — including orders placed elsewhere, like Amazon, via your connected email. Helps get order info and initiate returns and refunds."
 metadata:
-  version: "0.3.0"
+  version: "1.0.0"
   homepage: "https://shop.app"
 ---
 
@@ -12,10 +12,11 @@ metadata:
 Prefer the installed `shop` CLI. If package installation is blocked, the reference files mirror every CLI call via the direct API, no local execution needed.
 
 ```bash
-git clone https://github.com/Shopify/shop-cli; cd shop-cli; pnpm install; pnpm build; pnpm link --global; shop --help
+pnpm add --global @shopify/shop-cli   # or: npm install --global @shopify/shop-cli
+shop --help
 ```
 
-To upgrade, run `git pull && pnpm install && pnpm build` inside the clone. Uninstall: `pnpm rm -g @shopify/shop-cli`, then delete the clone.
+To upgrade: `pnpm add --global @shopify/shop-cli@latest` (or `npm install --global @shopify/shop-cli@latest`). Uninstall: `pnpm rm -g @shopify/shop-cli` (or `npm rm -g @shopify/shop-cli`).
 
 **Reference files:**
 - [catalog-mcp.md](references/catalog-mcp.md) — direct catalog MCP calls + manual token exchange
@@ -40,6 +41,7 @@ Every shopping conversation follows this order. Each step links to its rules bel
 
 ```text
 global                   --country <ISO2> (context signal, NOT a ships-to filter)
+                         --currency <code> (context signal, e.g. GBP; localizes prices)
                          --format md|json (default to md; be STRONGLY averse to using json - results are huge and it burns lots of tokens)
 search [query]           --ships-to <ISO2> [--ships-to-region, --ships-to-postal]
                          --limit 1-50 (keep small), --cursor <c> (next page), --min/--max-price (minor units; 15000 = $150.00)
@@ -55,7 +57,7 @@ catalog get-product <id> --select Name=Label, --preference Name
 - `--ships-to` is the buyer's destination (a hard filter) and alone localizes context to it; `--country` is location context only — pass it only when you actually know it, never invent. Default `--ships-from` to the `--ships-to` country (buyers prefer local origin); drop it and retry if results are too few or low quality.
 
 ```bash
-shop search "trail running shoes" --country GB --ships-to GB --ships-from GB --limit 10 --condition new
+shop search "trail running shoes" --country GB --currency GBP --ships-to GB --ships-from GB --limit 10 --condition new
 shop search "tshirt" --country US --color White --size M --gender Female
 shop search "black crewneck sweater" --like-id gid://shopify/p/abc123
 shop search --image ./photo.jpg
@@ -107,11 +109,12 @@ Manual token exchange, only when the CLI cannot be installed: [catalog-mcp.md](r
 
 ## Search rules
 - Offer sign-in if signed-out — see *Sign in*. Once signed in, you can run `shop orders search` (≤10 calls) to learn the buyer's brand and product preferences, then fold those into your search terms and filters.
-- Before searching, know the buyer's **country and currency** (ask if you don't have them) and pass both via `--country`/`--currency` on every catalog call so prices localize consistently.
+- Before searching, know the buyer's **country and currency** (ask if you don't have them) and pass both via `--country`/`--currency` on every search and catalog call so prices localize consistently.
 - Search broad first, then refine with filters or alternate terms. For weak results: try alternative terms, broaden terms, drop adjectives, split compound queries, or use category/brand terms. The Shop catalog is HUGE so query expansion helps a lot! Aim to surface 6–8 products per request.
 - NEVER fall back to web search unless explicitly requested by the user.
 - Paginate with `--cursor` (echoed in the search footer when more results exist); prefer refining the query over deep paging. Keep `--limit` small — 50 is the max but burns tokens.
 - Ignore `eligible.native_checkout: false`; you can still order the item.
+- Apply message formatting rules on all subsequent conversation turns
 
 **Similar items:**
 - `shop search --like-id <product gid>` — pass a product reference (`gid://shopify/p/...`); variant GIDs are rejected.
@@ -173,7 +176,7 @@ Then take one of two paths:
 ### Spending budget
 Offer to set up a budget when **either**:
 - it is the first time in the conversation a checkout reached `continue_url` (and you just sent that link), or
-- the user asks you to complete checkouts without per-purchase approval (eg "buy it for me")
+- the user asks you to complete checkouts without per-purchase approval (eg "buy it for me", "pay for me", "set up budget")
 
 Rules: send it as its own distinct message (never combined with other text), at most once per session unless the user asks again, and never pressure — it's a convenience.
 
