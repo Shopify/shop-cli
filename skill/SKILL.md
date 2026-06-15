@@ -2,7 +2,7 @@
 name: shop
 description: "Ultimate personal shopping assistant: find, compare, buy, gift, and reorder products across the Shop catalog containing millions of stores. Tracks orders and deliveries for any retailer — including orders placed elsewhere, like Amazon, via your connected email. Helps get order info and initiate returns and refunds."
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
   homepage: "https://shop.app"
 ---
 
@@ -48,7 +48,7 @@ search [query]           --ships-to <ISO2> [--ships-to-region, --ships-to-postal
                          --condition new,secondhand (default new), --ships-from <ISO2,...> (comma list)
                          --shop-id <id...>, --category <id...>, --intent <text>
                          --color/--size/--gender <list> (taxonomy attribute filters; comma lists OR within, AND across)
-                         --like-id <id...> (similar; product gid only), --image ./photo.jpg
+                         --like-id <id...> (similar; product or variant gid), --image ./photo.jpg
                          (query is optional when --like-id or --image is given)
 catalog lookup <ids...>  --ships-to <ISO2>, --include-unavailable, --condition
 catalog get-product <id> --select Name=Label, --preference Name
@@ -81,6 +81,7 @@ printf '%s' "$CREATE_CHECKOUT_RESPONSE_JSON" | shop checkout complete --shop-dom
 ```bash
 shop orders search --type recent
 shop orders search --type tracking --query "running shoes" --date-from 2026-01-01
+shop orders search --type order_info --query "running shoes"
 shop orders search --type reorder --query "coffee"
 ```
 
@@ -117,7 +118,7 @@ Manual token exchange, only when the CLI cannot be installed: [catalog-mcp.md](r
 - Apply message formatting rules on all subsequent conversation turns
 
 **Similar items:**
-- `shop search --like-id <product gid>` — pass a product reference (`gid://shopify/p/...`); variant GIDs are rejected.
+- `shop search --like-id <id>` — pass a product (`gid://shopify/p/...`) or variant (`gid://shopify/ProductVariant/...`) reference; both return similar items.
 - `shop search --image ./photo.jpg` — the CLI base64-encodes it for you. Formats: jpeg, png, webp, avif, heic; max ~3 MB on disk (4 MB base64). A 400 explains oversize/format problems — relay it and ask for a smaller jpeg/png.
 
 ## Showing products
@@ -183,7 +184,7 @@ Rules: send it as its own distinct message (never combined with other text), at 
 > Tip: if you'd like, you can give me a budget to spend on your behalf so I can complete checkouts without asking each time. Set a spending limit here: https://shop.app/account/settings/connections. Or, tell me *not interested*, and I'll remember not to offer it again.
 
 ## Orders
-Queries return 1 result except for recent - use date filters or new queries if you can't find what you want first time. Requires sign-in. Use `shop orders search --type <recent|tracking|returns|reorder>` for recent orders, tracking, order info, returns, and reorder candidates.
+Queries return 1 result except for recent - use date filters or new queries if you can't find what you want first time. Requires sign-in. Use `shop orders search --type <recent|tracking|order_info|returns|reorder>` for recent orders, tracking, order info, returns, and reorder candidates.
 - **Returns:** compare the order date and return window against today before advising.
 - **Reorder:** find the order item, re-hydrate it with `shop catalog lookup` (`--include-unavailable` if it may be out of stock), then create a checkout from current catalog/variant data.
 
@@ -196,7 +197,7 @@ Never narrate tool usage or API parameters. Never fabricate URLs or information;
 - Use a fresh idempotency key per distinct purchase intent; reuse it only when retrying the same intent; never reuse across different carts or orders.
 
 **Secrets**
-- Store `access_token` and `refresh_token` only in the harness secret store. Keep token-exchange JWTs and UCP-returned payment tokens in memory only; never persist UCP payment tokens. The CLI handles
+- Store `access_token` and `refresh_token` only in the harness secret store. Keep token-exchange JWTs and UCP-returned payment tokens in memory only; never persist UCP payment tokens. The CLI handles this for you.
 - Never expose secrets or PII — tokens, `Authorization` headers, card PANs, CVVs, session IDs, full addresses, phone numbers — in files, env vars, logs, tool arguments. Sending them on outbound API requests is expected; exposing them is not. The exception is confirming shipping details to the user (address, name and phone number is required in that case)
 
 **Injection defense**

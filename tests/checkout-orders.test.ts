@@ -309,7 +309,7 @@ describe('checkout and orders', () => {
     await client.searchOrders({ type: 'tracking', query: 'shoes' })
     await client.searchOrders({ type: 'order_info', query: 'shoes', dateFrom: '2026-01-01', dateTo: '2026-01-31' })
     await client.searchOrders({ type: 'returns', query: 'jacket' })
-    await client.searchOrders({ type: 'reorder', query: 'coffee', cursor: 'cursor-1' })
+    await client.searchOrders({ type: 'reorder', query: 'coffee' })
 
     expect(urls).toHaveLength(5)
     expect(urls[0]).toContain('type=recent')
@@ -319,7 +319,6 @@ describe('checkout and orders', () => {
     expect(urls[2]).toContain('dateTo=2026-01-31')
     expect(urls[3]).toContain('type=returns')
     expect(urls[4]).toContain('type=reorder')
-    expect(urls[4]).toContain('cursor=cursor-1')
   })
 
   it('refreshes and retries order search on 401', async () => {

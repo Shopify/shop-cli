@@ -22,6 +22,6 @@ export const COUNTRY_ACCOUNT = 'country'
 // Short-lived device-authorization state persisted between `auth device-code`
 // (emits the sign-in URL) and `auth poll` (exchanges + stores tokens).
 export const PENDING_DEVICE_AUTH_ACCOUNT = 'pending_device_auth'
-export const AUTH_SCOPES = 'openid email personal_agent pay:wallet_tokens:read'
+export const AUTH_SCOPES = 'openid email personal_agent'
 export const UCP_PROFILE =
   'https://shopify.dev/ucp/agent-profiles/2026-04-08/personal_agent.json'
