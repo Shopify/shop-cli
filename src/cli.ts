@@ -8,7 +8,7 @@ import { CLI_VERSION, COUNTRY_ACCOUNT, DEFAULT_COUNTRY } from './constants.js'
 import { toErrorMessage } from './errors.js'
 import { renderCatalogResult, renderCheckoutMessages } from './render.js'
 import { ShopCatalogClient } from './shop-client.js'
-import { clearStoredAuth, KeytarSecretStore, MemorySecretStore, setCountry } from './storage.js'
+import { clearStoredAuth, MemorySecretStore, OsKeyringSecretStore, setCountry } from './storage.js'
 import type { FetchLike, SecretStore } from './types.js'
 
 export interface CliDependencies {
@@ -425,7 +425,7 @@ function resolveStore(deps: CliDependencies, globals: GlobalOptions): SecretStor
     memoryStore ??= new MemorySecretStore()
     return memoryStore
   }
-  return new KeytarSecretStore()
+  return new OsKeyringSecretStore()
 }
 
 async function runAction(

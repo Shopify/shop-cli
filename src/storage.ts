@@ -7,98 +7,59 @@ import {
   SHOP_AGENT_SERVICE,
 } from './constants.js'
 import type { PendingDeviceAuth, SecretStore } from './types.js'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 
-const execFileAsync = promisify(execFile)
+interface KeyringEntry {
+  getPassword(): string | null
+  setPassword(value: string): void
+  deletePassword(): boolean
+}
+interface KeyringModule {
+  Entry: new (service: string, account: string) => KeyringEntry
+}
 
-type KeytarApi = Pick<typeof import('keytar'), 'getPassword' | 'setPassword' | 'deletePassword'>
+export class OsKeyringSecretStore implements SecretStore {
+  private modulePromise?: Promise<KeyringModule>
 
-export class KeytarSecretStore implements SecretStore {
-  private keytarPromise: Promise<KeytarApi | null>
-
-  constructor(private readonly service = SHOP_AGENT_SERVICE) {
-    this.keytarPromise = import('keytar')
-      .then((mod) => {
-        const candidate = ((mod as { default?: unknown }).default ?? mod) as Partial<KeytarApi>
-        const usable =
-          typeof candidate.getPassword === 'function' &&
-          typeof candidate.setPassword === 'function' &&
-          typeof candidate.deletePassword === 'function'
-        return usable ? (candidate as KeytarApi) : null
-      })
-      .catch(() => null)
-  }
+  constructor(private readonly service = SHOP_AGENT_SERVICE) {}
 
   async get(account: string): Promise<string | null> {
-    const keytar = await this.keytarPromise
-    if (keytar) return keytar.getPassword(this.service, account)
-    return this.macGet(account)
+    const entry = await this.entry(account)
+    try {
+      return entry.getPassword()
+    } catch (error) {
+      throw secretStoreError('read', error)
+    }
   }
 
   async set(account: string, value: string): Promise<void> {
-    const keytar = await this.keytarPromise
-    if (keytar) {
-      await keytar.setPassword(this.service, account, value)
-      return
+    const entry = await this.entry(account)
+    try {
+      entry.setPassword(value)
+    } catch (error) {
+      throw secretStoreError('write', error)
     }
-    await this.macSet(account, value)
   }
 
   async delete(account: string): Promise<boolean> {
-    const keytar = await this.keytarPromise
-    if (keytar) return keytar.deletePassword(this.service, account)
-    return this.macDelete(account)
-  }
-
-  private async macGet(account: string): Promise<string | null> {
-    assertDarwinFallback()
+    const entry = await this.entry(account)
     try {
-      const { stdout } = await execFileAsync('security', [
-        'find-generic-password',
-        '-s',
-        this.service,
-        '-a',
-        account,
-        '-w',
-      ])
-      return stdout.trim() || null
-    } catch {
-      return null
-    }
-  }
-
-  private async macSet(account: string, value: string): Promise<void> {
-    assertDarwinFallback()
-    const args = ['add-generic-password', '-U', '-s', this.service, '-a', account, '-w', value]
-    try {
-      await execFileAsync('security', args)
+      return entry.deletePassword()
     } catch (error) {
-      if (!isExistingKeychainItemError(error)) throw error
-      await this.macDelete(account)
-      await execFileAsync('security', args)
+      throw secretStoreError('delete', error)
     }
   }
 
-  private async macDelete(account: string): Promise<boolean> {
-    assertDarwinFallback()
+  private async entry(account: string): Promise<KeyringEntry> {
+    this.modulePromise ??= import('@napi-rs/keyring') as Promise<KeyringModule>
+    let keyring: KeyringModule
     try {
-      await execFileAsync('security', ['delete-generic-password', '-s', this.service, '-a', account])
-      return true
-    } catch {
-      return false
+      keyring = await this.modulePromise
+    } catch (error) {
+      this.modulePromise = undefined
+      throw secretStoreError('load', error)
     }
+    return new keyring.Entry(this.service, account)
   }
-}
-
-function isExistingKeychainItemError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'stderr' in error &&
-    typeof error.stderr === 'string' &&
-    error.stderr.includes('specified item already exists')
-  )
 }
 
 export class MemorySecretStore implements SecretStore {
@@ -181,10 +142,12 @@ export async function setCountry(store: SecretStore, country: string): Promise<v
   await store.set(COUNTRY_ACCOUNT, country.toUpperCase())
 }
 
-function assertDarwinFallback(): void {
-  if (process.platform !== 'darwin') {
-    throw new Error(
-      'OS secret storage is unavailable. Install/build keytar or run in an environment with macOS Keychain support.',
-    )
-  }
+function secretStoreError(op: 'load' | 'read' | 'write' | 'delete', cause: unknown): Error {
+  const detail = cause instanceof Error ? cause.message : String(cause)
+  const action = op === 'load' ? 'access' : op
+  return new Error(
+    `Could not ${action} the OS secret store. Shop credentials are kept in your OS keychain ` +
+      '(macOS Keychain, Windows Credential Manager, or Linux Secret Service); ensure one is ' +
+      `available and unlocked, then retry. (${detail})`,
+  )
 }
