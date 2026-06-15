@@ -17,7 +17,7 @@ jobs:
   changesets:
     name: changeset release
     if: github.event_name == 'push'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     environment:
       name: npm-shop-cli
       url: https://www.npmjs.com/package/@shopify/shop-cli
