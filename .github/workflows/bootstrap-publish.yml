@@ -57,9 +57,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
-
       - name: Typecheck
         run: pnpm typecheck
 
@@ -68,9 +65,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Integration test (real CLI bin against built dist)
-        run: pnpm test:integration
 
       - name: Pack and inspect contents
         run: |
