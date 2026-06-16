@@ -47,9 +47,9 @@ Run `shop <command> --help` for the flags on any command, and see the [Shop skil
 
 ## Personal-use limits
 
-This CLI is for individual end-users only. Building commercial services, resale platforms, aggregators, or anything that provides third parties with programmatic access to Shopify's catalog, checkout, delegated payments, or aggregated user data is prohibited.
+This CLI is designed for individual end users, for personal use. The Shopify servers it connects to have usage restrictions. Building commercial services, resale platforms, aggregators, or anything that provides third parties with programmatic access to Shopify's catalog, checkout, delegated payments, or aggregated user data is prohibited.
 
-See https://help.shop.app/shop/shopping/personal-agents for accepted and prohibited use.
+See https://help.shop.app/en/shop/shopping/personal-agents for accepted and prohibited use.
 
 ## Development
 

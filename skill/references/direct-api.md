@@ -234,7 +234,7 @@ GET https://shop.app/pay/agents/payment_tokens
 Authorization: Bearer <access_token>
 ```
 
-Requires the `pay:wallet_tokens:read` scope. Authoritative success shape:
+Authoritative success shape:
 
 ```json
 {
@@ -275,4 +275,4 @@ Types:
 - `returns`
 - `reorder`
 
-Use `cursor=<endCursor>` when the response includes an `endCursor`; recent ignores cursor.
+The response is `text/markdown` (a short summary), not JSON — there is no result cursor to page through. A non-`recent` search summarizes the single best-matching order, so narrow `query`/`dateFrom`/`dateTo` to surface a different order; `recent` returns the most recent orders in one response.

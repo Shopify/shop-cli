@@ -125,7 +125,6 @@ export interface OrderSearchInput {
   query?: string
   dateFrom?: string
   dateTo?: string
-  cursor?: string
 }
 
 export class ShopCatalogClient {
@@ -260,7 +259,6 @@ export class ShopCatalogClient {
     if (input.query) params.set('query', input.query)
     if (input.dateFrom) params.set('dateFrom', input.dateFrom)
     if (input.dateTo) params.set('dateTo', input.dateTo)
-    if (input.cursor) params.set('cursor', input.cursor)
 
     const response = await this.authenticatedShopFetch(`https://shop.app/agents/orderSearch?${params.toString()}`, {
       accessToken,

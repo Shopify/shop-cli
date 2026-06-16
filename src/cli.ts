@@ -348,7 +348,6 @@ export function createProgram(deps: CliDependencies = {}): Command {
     .option('--query <text>', 'Search terms')
     .option('--date-from <date>', 'Inclusive start date YYYY-MM-DD')
     .option('--date-to <date>', 'Inclusive end date YYYY-MM-DD')
-    .option('--cursor <cursor>', 'Pagination cursor')
     .action(async (options) => {
       await runTextAction({ stdout, stderr, exit }, async () =>
         resolveClient(deps, program).searchOrders({
@@ -356,7 +355,6 @@ export function createProgram(deps: CliDependencies = {}): Command {
           query: options.query,
           dateFrom: options.dateFrom,
           dateTo: options.dateTo,
-          cursor: options.cursor,
         }),
       )
     })
