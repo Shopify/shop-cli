@@ -29,24 +29,20 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
-      - uses: shop/setup-javascript-action@main
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
-          node-version-file: package.json
-          pnpm-version: 10.28.0
+          version: 10.28.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Configure public npm registry
-        shell: bash
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          echo "registry=https://registry.npmjs.org/" > ~/.npmrc
-          echo "//registry.npmjs.org/:_authToken=" >> ~/.npmrc
-          echo "@shopify:registry=https://registry.npmjs.org/" >> ~/.npmrc
       - uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1.8.0
         with:
           version: pnpm version-packages
           publish: pnpm release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NPM_CONFIG_PROVENANCE: "true"
-          NPM_TOKEN: ''
+          NPM_CONFIG_PROVENANCE: "true"
+          NPM_TOKEN: ""
+          NODE_AUTH_TOKEN: ""
