@@ -67,8 +67,8 @@ shop catalog get-product gid://shopify/p/abc --select Color=Black --select Size=
 
 ### Checkout
 ```bash
-# create from a variant
-printf '{"email":"buyer@example.com"}' | shop checkout create --shop-domain example.myshopify.com --variant-id 123 --quantity 1 --checkout-stdin
+# create from a variant (--country localizes presentment currency)
+printf '{"email":"buyer@example.com"}' | shop checkout create --shop-domain example.myshopify.com --variant-id 123 --quantity 1 --country GB --checkout-stdin
 # create from an existing cart
 printf '{"cart_id":"cart_123","line_items":[]}' | shop checkout create --shop-domain example.myshopify.com --checkout-stdin
 printf '{"fulfillment":{"methods":[]}}' | shop checkout update --shop-domain example.myshopify.com --checkout-id CHECKOUT_ID --checkout-stdin
@@ -164,6 +164,7 @@ When the item is visual (clothing, shoes, accessories, furniture, decor, art) **
 **Reading the `checkout create` / `update` response:**
 - Inspect `status`, `email`, addresses, `continue_url`, and `payment.instruments`.
 - If the buyer's saved shipping details are missing, collect them and pass via `checkout create`/`update`.
+- Pass `--country <ISO2>` on `checkout create` to localize presentment currency; without it the merchant may present a foreign currency. It does not override the saved address.
 - **Warnings:** display every `messages[]` entry with type `warning` (e.g. `final_sale`, `prop65`, `age_restricted`) before completing. Show `presentation: "disclosure"` warnings verbatim — never omit or summarize them. Never complete a purchase without surfacing these.
 
 Then take one of two paths:

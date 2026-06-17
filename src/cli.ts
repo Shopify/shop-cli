@@ -287,6 +287,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
           quantity: options.quantity,
           checkout,
           buyerIp: options.buyerIp,
+          country: explicitCountry(program),
         })
         return annotateShopPayAvailability(client, result)
       })
@@ -400,18 +401,23 @@ export async function main(argv = process.argv, deps: CliDependencies = {}): Pro
   }
 }
 
+function explicitCountry(program: Command): string | undefined {
+  return program.getOptionValueSource('country') === 'cli'
+    ? program.optsWithGlobals<GlobalOptions>().country
+    : undefined
+}
+
 function resolveClient(deps: CliDependencies, program: Command): ShopCatalogClient {
   const globals = program.optsWithGlobals<GlobalOptions>()
   const store = resolveStore(deps, globals)
   // Only treat --country as an explicit override when it was actually passed on the CLI;
   // otherwise leave it undefined so the client falls back to the stored preference, then
   // DEFAULT_COUNTRY. The default value of the option must never override a stored country.
-  const explicitCountry = program.getOptionValueSource('country') === 'cli' ? globals.country : undefined
   return new ShopCatalogClient({
     fetch: deps.fetch,
     store,
     profileUrl: globals.profileUrl,
-    country: explicitCountry,
+    country: explicitCountry(program),
   })
 }
 

@@ -110,6 +110,7 @@ Create with line items, or pass a checkout body that already contains a `cart_id
       },
       "checkout": {
         "cart_id": "<optional_cart_id>",
+        "context": { "address_country": "US" },
         "line_items": [
           {
             "quantity": 1,
@@ -141,6 +142,8 @@ Create with line items, or pass a checkout body that already contains a `cart_id
   }
 }
 ```
+
+`context.address_country` (ISO2) localizes presentment currency to the buyer's country; without it the merchant infers it from the request geo-IP. It does not override the saved address.
 
 If response status is `ready_for_complete` and includes a Shop Pay payment token, complete after clear purchase intent. If no payment token is present, present the UCP `continue_url` as a Finish in Shop link. **If the buyer has a delegated budget (see Payment Budget) but the checkout still returns no payment instruments, the merchant does not accept Shop Pay** — hand off `continue_url` or suggest another store; do not re-prompt the user to set up a budget (they already have one).
 

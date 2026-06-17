@@ -3,6 +3,7 @@ import { expect, fn } from './harness.js'
 
 import {
   ACCESS_TOKEN_ACCOUNT,
+  COUNTRY_ACCOUNT,
   DEVICE_ID_ACCOUNT,
   REFRESH_TOKEN_ACCOUNT,
 } from '../src/constants.js'
@@ -64,6 +65,61 @@ describe('checkout and orders', () => {
         },
       },
     })
+  })
+
+  it('sets checkout.context.address_country from country, letting stdin context win', async () => {
+    const store = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' })
+    const bodies: unknown[] = []
+    const fetchMock = createFetchMock(async (url, init) => {
+      if (url.endsWith('/userinfo')) return jsonResponse({ sub: 'user-1' })
+      if (url === 'https://shop.app/oauth/token') return jsonResponse({ access_token: 'ucp-jwt' })
+      if (url === 'https://api.ipify.org?format=json') return jsonResponse({ ip: '203.0.113.10' })
+      bodies.push(await readJsonBody(init))
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { status: 'ready_for_complete' } } })
+    })
+    const client = new ShopCatalogClient({ fetch: fetchMock, store })
+
+    await client.createCheckout({ shopDomain: 'example.myshopify.com', variantId: '123', country: 'GB' })
+    await client.createCheckout({
+      shopDomain: 'example.myshopify.com',
+      variantId: '123',
+      country: 'GB',
+      checkout: { context: { address_country: 'US' } },
+    })
+
+    expect(bodies[0]).toMatchObject({
+      params: { name: 'create_checkout', arguments: { checkout: { context: { address_country: 'GB' } } } },
+    })
+    expect(bodies[1]).toMatchObject({
+      params: { name: 'create_checkout', arguments: { checkout: { context: { address_country: 'US' } } } },
+    })
+  })
+
+  it('falls back to the stored country preference, but never to a default country', async () => {
+    const bodies: { params: { arguments: { checkout: { context?: unknown } } } }[] = []
+    const fetchMock = createFetchMock(async (url, init) => {
+      if (url.endsWith('/userinfo')) return jsonResponse({ sub: 'user-1' })
+      if (url === 'https://shop.app/oauth/token') return jsonResponse({ access_token: 'ucp-jwt' })
+      if (url === 'https://api.ipify.org?format=json') return jsonResponse({ ip: '203.0.113.10' })
+      bodies.push((await readJsonBody(init)) as (typeof bodies)[number])
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { status: 'ready_for_complete' } } })
+    })
+
+    const stored = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access', [COUNTRY_ACCOUNT]: 'GB' })
+    await new ShopCatalogClient({ fetch: fetchMock, store: stored }).createCheckout({
+      shopDomain: 'example.myshopify.com',
+      variantId: '123',
+    })
+    const none = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' })
+    await new ShopCatalogClient({ fetch: fetchMock, store: none }).createCheckout({
+      shopDomain: 'example.myshopify.com',
+      variantId: '123',
+    })
+
+    expect(bodies[0]).toMatchObject({
+      params: { name: 'create_checkout', arguments: { checkout: { context: { address_country: 'GB' } } } },
+    })
+    expect(bodies[1].params.arguments.checkout.context).toBeUndefined()
   })
 
   it('unwraps the MCP envelope and returns the checkout payload, not the raw frame', async () => {
@@ -462,6 +518,27 @@ describe('checkout and orders', () => {
 
     expect(stderr.write).not.toHaveBeenCalled()
     expect(names).toEqual(['create_checkout', 'create_checkout', 'update_checkout', 'complete_checkout'])
+  })
+
+  it('wires --country into checkout.context.address_country via the CLI', async () => {
+    const { createProgram } = await import('../src/cli.js')
+    const store = createStore({ [ACCESS_TOKEN_ACCOUNT]: 'access' })
+    let body: { params: { name: string; arguments: { checkout: { context?: { address_country?: string } } } } } | undefined
+    const fetchMock = createFetchMock(async (url, init) => {
+      if (url.endsWith('/userinfo')) return jsonResponse({ sub: 'user-1' })
+      if (url === 'https://shop.app/oauth/token') return jsonResponse({ access_token: 'ucp-jwt' })
+      if (url === 'https://api.ipify.org?format=json') return jsonResponse({ ip: '203.0.113.10' })
+      const parsed = (await readJsonBody(init)) as typeof body
+      if (parsed?.params?.name === 'create_checkout') body = parsed
+      return jsonResponse({ jsonrpc: '2.0', id: 1, result: { structuredContent: { status: 'ready_for_complete' } } })
+    })
+    const base = { fetch: fetchMock, store, stdout: { write: fn() }, stderr: { write: fn() }, exit: (() => undefined) as never }
+
+    await createProgram(base).parseAsync([
+      'node', 'shop', 'checkout', 'create', '--shop-domain', 'example.myshopify.com', '--variant-id', '123', '--country', 'GB',
+    ])
+
+    expect(body?.params.arguments.checkout.context).toEqual({ address_country: 'GB' })
   })
 
   it('surfaces UCP checkout messages (final_sale, prop65) above the raw JSON on create', async () => {
