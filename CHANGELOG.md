@@ -1,5 +1,11 @@
 # @shopify/shop-cli
 
+## 0.1.1
+
+### Patch Changes
+
+- afe8b5f: Fix skill doc inconsistencies surfaced in review
+
 ## 0.1.0
 
 ### Minor Changes
