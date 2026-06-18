@@ -1,6 +1,6 @@
 {
   "name": "@shopify/shop-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Personal shopping CLI for Shop catalog search, checkout, and order workflows",
   "type": "module",
   "license": "MIT",
