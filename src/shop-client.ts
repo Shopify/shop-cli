@@ -99,6 +99,7 @@ export interface CheckoutCreateInput {
   quantity?: number
   checkout?: JsonObject
   buyerIp?: string
+  country?: string
 }
 
 export interface CheckoutUpdateInput {
@@ -185,6 +186,11 @@ export class ShopCatalogClient {
           item: { id: normalizeVariantGid(input.variantId) },
         },
       ]
+    }
+    const country = (input.country ?? this.explicitCountry ?? (await getCountry(this.options.store, ''))) || undefined
+    if (country) {
+      const piped = isPlainObject(checkout.context) ? checkout.context : {}
+      checkout.context = { address_country: country, ...piped }
     }
 
     return unwrapMcpResult(await this.callShopMcp(shopDomain, 'create_checkout', { checkout }, token, buyerIp))
