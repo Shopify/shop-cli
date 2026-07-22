@@ -32,6 +32,28 @@ export function withUtm(url: string): string {
   }
 }
 
+export function renderLocationsResult(json: unknown): string {
+  if (!isObject(json) || !isObject(json.possiblePickupLocationsV2)) {
+    return '_No pickup inventory data in response._'
+  }
+
+  const connection = json.possiblePickupLocationsV2
+  const nodes = Array.isArray(connection.nodes) ? connection.nodes.filter(isObject) : []
+  const locations = nodes.map(renderPickupLocation)
+  const pagination = renderPickupLocationsPagination(connection)
+
+  if (locations.length === 0) {
+    return pagination || '_No pickup inventory found near this location._'
+  }
+  return [
+    locations.join('\n\n---\n\n'),
+    pagination,
+    "_Inventory is point-in-time and not reserved. Use the catalog's exact-variant checkout link when available; the buyer selects pickup and the store during checkout._",
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 export function renderCatalogResult(toolName: string, json: unknown): string {
   const structured = getStructuredContent(json)
   if (!structured) return '_No catalog data in response._'
@@ -54,6 +76,56 @@ export function renderCatalogResult(toolName: string, json: unknown): string {
     return [messages, pagination].filter(Boolean).join('\n\n') || '_No products found._'
   }
   return [blocks.join('\n\n---\n\n'), messages, pagination].filter(Boolean).join('\n\n')
+}
+
+function renderPickupLocation(node: JsonObject): string {
+  const location = isObject(node.location) ? node.location : undefined
+  const name = asString(location?.name) ?? 'Unnamed pickup location'
+  const distance = formatLocationDistance(node.distance)
+  const lines = [distance ? `${name} — ${distance}` : name]
+  const quantity =
+    typeof node.quantityAvailable === 'number' && Number.isInteger(node.quantityAvailable)
+      ? node.quantityAvailable
+      : undefined
+  if (quantity !== undefined) {
+    lines.push(`Pickup stock: ${quantity.toLocaleString('en-US')} item${quantity === 1 ? '' : 's'}`)
+  } else if (node.isAvailable === true) {
+    lines.push('Available for pickup')
+  } else if (node.isAvailable === false) {
+    lines.push('Not available for pickup')
+  }
+  const eta = asString(location?.pickupEtaTranslated)
+  if (eta) lines.push(`Pickup estimate: ${eta}`)
+  const address = formatLocationAddress(location?.address)
+  if (address) lines.push(address)
+  return lines.join('\n')
+}
+
+function formatLocationDistance(distance: unknown): string | undefined {
+  if (!isObject(distance)) return undefined
+  const value = typeof distance.value === 'number' ? distance.value : Number(distance.value)
+  if (!Number.isFinite(value)) return undefined
+  const unit = distance.unit === 'MILES' ? 'mi' : distance.unit === 'KILOMETERS' ? 'km' : undefined
+  if (!unit) return undefined
+  return `${value.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${unit}`
+}
+
+function formatLocationAddress(address: unknown): string | undefined {
+  if (!isObject(address)) return undefined
+  const locality = [asString(address.city), asString(address.zoneCode)].filter(Boolean).join(', ')
+  const postalCode = asString(address.postalCode)
+  const localityAndPostal = [locality, postalCode].filter(Boolean).join(' ')
+  const parts = [asString(address.address1), localityAndPostal, asString(address.country)].filter(Boolean)
+  return parts.length > 0 ? parts.join(', ') : undefined
+}
+
+function renderPickupLocationsPagination(connection: JsonObject): string {
+  if (!isObject(connection.pageInfo) || connection.pageInfo.hasNextPage !== true) return ''
+  const cursor = asString(connection.pageInfo.endCursor)
+  if (!cursor) return ''
+  const total = typeof connection.totalCount === 'number' ? connection.totalCount : undefined
+  const totalText = total !== undefined ? `${total.toLocaleString('en-US')} total. ` : ''
+  return `_${totalText}More pickup locations: re-run the same command with \`--cursor ${cursor}\`._`
 }
 
 function renderPagination(pagination: unknown): string {
@@ -144,8 +216,8 @@ function renderVariants(variants: JsonObject[], productTitle: string, includeChe
     if (availability) line = line ? `${line} — ${availability}` : availability
     if (line) lines.push(line)
 
-    // Show UCP's checkout link as-is, with UTM appended. Never recreate it.
-    // Only rendered for get_product; search/lookup omit it to stay compact.
+    // Show the catalog-provided checkout link with only UTM attribution appended.
+    // Never reconstruct it. Only get_product renders it; search/lookup stay compact.
     if (!includeCheckout) continue
     const checkoutUrl = asString(variant.checkout_url)
     if (checkoutUrl) lines.push(`Checkout: ${withUtm(checkoutUrl)}`)

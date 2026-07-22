@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import { expect } from './harness.js'
 
-import { renderCatalogResult, withUtm } from '../src/render.js'
+import { renderCatalogResult, renderLocationsResult, withUtm } from '../src/render.js'
 
 const searchResponse = {
   jsonrpc: '2.0',
@@ -71,6 +71,59 @@ describe('withUtm', () => {
 
   it('returns non-URL strings unchanged', () => {
     expect(withUtm('not a url')).toBe('not a url')
+  })
+})
+
+describe('renderLocationsResult', () => {
+  it('renders exact-variant pickup inventory without internal IDs', () => {
+    const output = renderLocationsResult({
+      variantId: 'gid://shopify/ProductVariant/50661914640743',
+      possiblePickupLocationsV2: {
+        totalCount: 12,
+        nodes: [
+          {
+            isAvailable: true,
+            quantityAvailable: 3,
+            distance: { value: '2.456', unit: 'MILES' },
+            location: {
+              name: 'Alo Flatiron',
+              pickupEtaTranslated: 'Usually ready in 2 hours',
+              address: {
+                address1: '164 Fifth Ave',
+                city: 'New York',
+                zoneCode: 'NY',
+                postalCode: '10010',
+                country: 'United States',
+              },
+            },
+          },
+        ],
+        pageInfo: { hasNextPage: true, endCursor: 'NEXT_CURSOR' },
+      },
+    })
+
+    expect(output).toContain('Alo Flatiron — 2.46 mi')
+    expect(output).toContain('Pickup stock: 3 items')
+    expect(output).toContain('Pickup estimate: Usually ready in 2 hours')
+    expect(output).toContain('164 Fifth Ave, New York, NY 10010, United States')
+    expect(output).toContain('12 total')
+    expect(output).toContain('--cursor NEXT_CURSOR')
+    expect(output).toContain('Inventory is point-in-time and not reserved')
+    expect(output).toContain('buyer selects pickup and the store during checkout')
+    expect(output).not.toContain('50661914640743')
+  })
+
+  it('handles empty and malformed location results', () => {
+    expect(
+      renderLocationsResult({
+        possiblePickupLocationsV2: {
+          totalCount: 0,
+          nodes: [],
+          pageInfo: { hasNextPage: false },
+        },
+      }),
+    ).toContain('No pickup inventory found')
+    expect(renderLocationsResult({})).toContain('No pickup inventory data')
   })
 })
 
@@ -293,7 +346,7 @@ describe('renderCatalogResult', () => {
     expect(noUrl).not.toContain('https://kozmoshoes.com')
   })
 
-  it('shows the UCP checkout link only for get_product, as-is with utm', () => {
+  it('shows the catalog checkout link only for get_product, with utm', () => {
     const detail = renderCatalogResult('get_product', {
       result: { structuredContent: { product: searchResponse.result.structuredContent.products[0] } },
     })

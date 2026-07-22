@@ -6,8 +6,9 @@ import { Command } from 'commander'
 import { AuthClient } from './auth.js'
 import { CLI_VERSION, COUNTRY_ACCOUNT, DEFAULT_COUNTRY } from './constants.js'
 import { toErrorMessage } from './errors.js'
-import { renderCatalogResult, renderCheckoutMessages } from './render.js'
+import { renderCatalogResult, renderCheckoutMessages, renderLocationsResult } from './render.js'
 import { ShopCatalogClient } from './shop-client.js'
+import type { LocationDistanceUnit } from './shop-client.js'
 import { clearStoredAuth, KeytarSecretStore, MemorySecretStore, setCountry } from './storage.js'
 import type { FetchLike, SecretStore } from './types.js'
 
@@ -37,12 +38,12 @@ export function createProgram(deps: CliDependencies = {}): Command {
 
   program
     .name('shop')
-    .description('Shop personal shopping CLI for catalog search, auth, checkout, and order search')
+    .description('Shop personal shopping CLI for catalog search, local pickup inventory, auth, checkout, and orders')
     .version(CLI_VERSION)
     .option('--country <code>', 'Buyer country for this call (catalog context signal, not a ships-to filter). Transient; use `shop config set-country` to persist a default.', DEFAULT_COUNTRY)
     .option('--profile-url <url>', 'UCP agent profile URL for global catalog calls')
     .option('--memory-store', 'Use in-memory token storage for tests and dry runs')
-    .option('--format <format>', 'Output format for catalog results: md (default) or json. Auth and checkout always emit JSON; orders emit markdown.', parseFormat, 'md')
+    .option('--format <format>', 'Output format for catalog and location results: md (default) or json. Auth and checkout always emit JSON; orders emit markdown.', parseFormat, 'md')
     .showHelpAfterError()
 
   program
@@ -98,6 +99,40 @@ export function createProgram(deps: CliDependencies = {}): Command {
           view: options.view,
         })
       })
+    })
+
+  program
+    .command('locations')
+    .description('Find BOPIS pickup inventory for an exact variant near an explicitly supplied location (Shop sign-in required)')
+    .argument('<shop-id>', 'Numeric Shop ID shown in catalog results, or gid://shopify/Shop/<id>')
+    .argument('<variant-id>', 'Numeric variant ID shown in catalog results, or gid://shopify/ProductVariant/<id>')
+    .option('-l, --limit <number>', 'Results per page, 1-50', parseLimit, 15)
+    .option('--cursor <cursor>', 'Pagination cursor from a previous locations response')
+    .option('--near-country <ISO2>', 'Country for pickup proximity search')
+    .option('--near-region <code>', 'Region or state code for pickup proximity search')
+    .option('--near-city <name>', 'City for pickup proximity search')
+    .option('--near-postal-code <code>', 'Postal code for pickup proximity search')
+    .option('--near-latitude <number>', 'Latitude to refine pickup proximity after explicit permission', parseFiniteNumber)
+    .option('--near-longitude <number>', 'Longitude to refine pickup proximity after explicit permission', parseFiniteNumber)
+    .option('--max-distance <number>', 'Maximum distance from the supplied pickup location', parseFiniteNumber)
+    .option('--distance-unit <unit>', 'Distance unit: miles or kilometers', parseDistanceUnit)
+    .action(async (shopId: string, variantId: string, options) => {
+      await runLocationsAction({ stdout, stderr, exit }, program, async () =>
+        resolveClient(deps, program).locations({
+          shopId,
+          variantId,
+          limit: options.limit,
+          cursor: options.cursor,
+          nearAddress: buildRequiredNearAddress(
+            options.nearCountry,
+            options.nearRegion,
+            options.nearCity,
+            options.nearPostalCode,
+          ),
+          nearCoordinate: buildNearCoordinate(options.nearLatitude, options.nearLongitude),
+          maxDistance: buildMaxDistance(options.maxDistance, options.distanceUnit),
+        }),
+      )
     })
 
   const catalog = program
@@ -479,6 +514,25 @@ async function runTextAction(
   }
 }
 
+async function runLocationsAction(
+  io: Required<Pick<CliDependencies, 'exit'>> & Pick<CliDependencies, 'stdout' | 'stderr'>,
+  program: Command,
+  action: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    const result = await action()
+    const format = program.optsWithGlobals<GlobalOptions>().format ?? 'md'
+    io.stdout?.write(
+      format === 'json'
+        ? `${JSON.stringify(result, null, 2)}\n`
+        : `${renderLocationsResult(result)}\n`,
+    )
+  } catch (error) {
+    io.stderr?.write(`# Error\n\n${toErrorMessage(error)}\n`)
+    io.exit(1)
+  }
+}
+
 // Catalog read commands default to compact markdown; --format json prints raw JSON.
 async function runCatalogAction(
   io: Required<Pick<CliDependencies, 'exit'>> & Pick<CliDependencies, 'stdout' | 'stderr'>,
@@ -533,6 +587,57 @@ function parseBoundedInt(min: number, max?: number): (value: string) => number {
 const parseLimit = parseBoundedInt(1, 50)
 const parsePrice = parseBoundedInt(0)
 const parseQuantity = parseBoundedInt(1)
+
+function parseFiniteNumber(value: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) throw new Error(`Invalid number: "${value}"`)
+  return parsed
+}
+
+function parseDistanceUnit(value: string): LocationDistanceUnit {
+  if (value === 'miles') return 'MILES'
+  if (value === 'kilometers') return 'KILOMETERS'
+  throw new Error(`Invalid distance unit "${value}". Use "miles" or "kilometers".`)
+}
+
+function buildNearCoordinate(
+  latitude?: number,
+  longitude?: number,
+): { latitude: number; longitude: number } | undefined {
+  if (latitude === undefined && longitude === undefined) return undefined
+  if (latitude === undefined || longitude === undefined) {
+    throw new Error('--near-latitude and --near-longitude must be provided together')
+  }
+  return { latitude, longitude }
+}
+
+function buildRequiredNearAddress(
+  country?: string,
+  region?: string,
+  city?: string,
+  postalCode?: string,
+): { country: string; region?: string; city?: string; postalCode?: string } {
+  if (!country) {
+    throw new Error(
+      'Pickup proximity requires --near-country and either --near-city or --near-postal-code',
+    )
+  }
+  if (!city && !postalCode) {
+    throw new Error('Pickup proximity requires --near-city or --near-postal-code')
+  }
+  return { country, region, city, postalCode }
+}
+
+function buildMaxDistance(
+  value?: number,
+  unit?: LocationDistanceUnit,
+): { value: number; unit: LocationDistanceUnit } | undefined {
+  if (value === undefined && unit === undefined) return undefined
+  if (value === undefined || unit === undefined) {
+    throw new Error('--max-distance and --distance-unit must be provided together')
+  }
+  return { value, unit }
+}
 
 function commaList(value: string): string[] {
   return value

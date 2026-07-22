@@ -1,4 +1,4 @@
-# Direct Auth, Checkout, And Orders API
+# Direct BOPIS Locations, Auth, Checkout, And Orders API
 
 Use this reference when the CLI cannot be installed. Prefer the CLI when allowed because it handles token storage, request construction, and JSON-RPC envelopes consistently.
 
@@ -12,6 +12,54 @@ Use the OS secret store with service `shop-agent` and accounts:
 - `country`
 
 Keep checkout JWTs, buyer IP, and UCP-returned payment tokens in memory only.
+
+## BOPIS Locations
+
+Exact-variant pickup lookup requires a Shop OAuth access token from the device authorization flow below. The token identifies the API caller for normal rate limiting; it is not used to derive the pickup search location. Also send the ordinary CLI `User-Agent`; do not send `X-User-Agent` or spoof a Shop app version:
+
+```http
+POST https://server.shop.app/graphql
+Authorization: Bearer <shop_access_token>
+User-Agent: shop-cli/<version>
+Accept: application/json
+Content-Type: application/json
+```
+
+Use the numeric merchant Shop ID and exact product variant ID from catalog output. Pass the numeric Shop ID as `brokerId`; pass the variant as a full `gid://shopify/ProductVariant/<id>`.
+
+```json
+{
+  "operationName": "ShopCliLocations",
+  "query": "query ShopCliLocations($brokerId: ID!, $variantId: ShopifyProductVariantGID!, $first: Int!, $after: String, $mailingAddress: MailingAddressInput!, $pickupAddress: MailingAddressInput, $pickupCoordinate: CoordinateInput, $maxDistance: DistanceInput) { locationSpecificStorefrontProductVariant(brokerId: $brokerId, variantId: $variantId, mailingAddress: $mailingAddress, pickupAddress: $pickupAddress, pickupCoordinate: $pickupCoordinate) { variantId possiblePickupLocationsV2(first: $first, after: $after, maxDistance: $maxDistance, available: true) { totalCount nodes { isAvailable quantityAvailable distance { value unit } location { name pickupEtaTranslated address { address1 city zoneCode country postalCode } } } pageInfo { startCursor endCursor hasNextPage } } } }",
+  "variables": {
+    "brokerId": "21852813",
+    "variantId": "gid://shopify/ProductVariant/50661914640743",
+    "first": 15,
+    "mailingAddress": {
+      "country": "US",
+      "city": "New York"
+    },
+    "pickupAddress": {
+      "country": "US",
+      "city": "New York"
+    },
+    "maxDistance": {
+      "value": 25,
+      "unit": "MILES"
+    }
+  }
+}
+```
+
+Always send an explicit ISO alpha-2 country plus city or postal code as `mailingAddress`, and send the same object as `pickupAddress`. Authentication does not replace these inputs. This prevents account, saved-address, and IP fallback. If the buyer explicitly authorizes precise coordinates, keep the coarse `mailingAddress`, send `pickupCoordinate`, and omit `pickupAddress`; GraphQL rejects both pickup inputs together. `maxDistance` uses `MILES` or `KILOMETERS`. Use `pageInfo.endCursor` as `after` only when `hasNextPage` is true.
+
+Parse a country plus city or postal code already present in the buyer’s request. If it is missing, ask for that coarse location and wait. Do not infer it from the buyer’s account, a saved address, IP geolocation, or another default.
+
+Use `pickupCoordinate` only when the buyer explicitly authorizes precise location use. Never persist the buyer’s location. Returned location addresses are public merchant data.
+
+`available: true` returns only pickup-enabled locations where the exact variant has point-in-time inventory. It does not reserve inventory.
+
+After discovery, retrieve the selected product through the Global Catalog `get_product` tool and use the exact selected variant’s returned `checkout_url`. Compact catalog search and lookup responses omit checkout URLs. Never reconstruct a checkout URL from the merchant domain or variant ID; catalog-provided URLs can contain required opaque parameters. The link adds the exact variant to normal merchant checkout but does not preselect pickup or a store, so tell the buyer to choose both there. If `checkout_url` is absent, return the catalog-provided product URL instead. Never fabricate a URL or claim that pickup is reserved or completed.
 
 ## Device Authorization
 
@@ -72,7 +120,7 @@ resource=https://{shop_domain}/
 client_id=5c733ab2-1903-400a-891e-7ba20c09e2a3
 ```
 
-If the merchant endpoint returns auth/permission errors, hand off with the variant `checkout_url`, product URL, or seller URL instead of retrying the same agent checkout.
+If the merchant endpoint returns auth/permission errors, hand off with the catalog-provided variant `checkout_url`, or the product URL when it is absent, instead of retrying the same agent checkout. Never construct either URL.
 
 Use the returned JWT only in memory:
 
@@ -227,6 +275,8 @@ Use `update_checkout` with the checkout ID from create and only the fields that 
   }
 }
 ```
+
+Do not use `update_checkout` to select BOPIS. The current UCP checkout surface used by this CLI does not expose pickup as a supported fulfillment method. Use the exact-variant locations query for point-in-time discovery, then provide the selected variant’s catalog-returned `checkout_url`. The buyer must select pickup and the store during normal checkout. If that URL is unavailable, provide the catalog-returned product URL instead.
 
 ## Payment Budget (Delegated Spending)
 

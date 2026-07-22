@@ -1,10 +1,18 @@
+import { readFileSync } from 'node:fs'
+
+const packageJson = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { version?: unknown }
+if (typeof packageJson.version !== 'string') throw new Error('package.json must define a version')
+
 export const CLIENT_ID = '5c733ab2-1903-400a-891e-7ba20c09e2a3'
 export const DEFAULT_AGENT_NAME = 'Shop CLI'
 export const DEFAULT_COUNTRY = 'US'
 export const DEFAULT_PROFILE_URL =
   'https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json'
 export const GLOBAL_CATALOG_MCP_URL = 'https://catalog.shopify.com/api/ucp/mcp'
-export const CLI_VERSION = '0.1.0'
+export const SHOP_GRAPHQL_URL = 'https://server.shop.app/graphql'
+export const CLI_VERSION = packageJson.version
 export const USER_AGENT = `shop-cli/${CLI_VERSION}`
 // Authenticated global-catalog access uses a brokered RFC 8693 token exchange:
 // audience=api.shopify.com + requested_token_type=...access_token returns a

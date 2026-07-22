@@ -8,6 +8,7 @@ import {
   GLOBAL_CATALOG_MCP_URL,
   PAYMENT_TOKENS_URL,
   REFRESH_TOKEN_ACCOUNT,
+  SHOP_GRAPHQL_URL,
   TOKEN_EXCHANGE_URL,
   UCP_PROFILE,
 } from './constants.js'
@@ -34,6 +35,61 @@ const ATTRIBUTE_FILTERS: ReadonlyArray<readonly [name: string, key: 'color' | 's
   ['Size', 'size'],
   ['Target gender', 'gender'],
 ]
+
+const LOCATIONS_QUERY = `
+  query ShopCliLocations(
+    $brokerId: ID!
+    $variantId: ShopifyProductVariantGID!
+    $first: Int!
+    $after: String
+    $mailingAddress: MailingAddressInput!
+    $pickupAddress: MailingAddressInput
+    $pickupCoordinate: CoordinateInput
+    $maxDistance: DistanceInput
+  ) {
+    locationSpecificStorefrontProductVariant(
+      brokerId: $brokerId
+      variantId: $variantId
+      mailingAddress: $mailingAddress
+      pickupAddress: $pickupAddress
+      pickupCoordinate: $pickupCoordinate
+    ) {
+      variantId
+      possiblePickupLocationsV2(
+        first: $first
+        after: $after
+        maxDistance: $maxDistance
+        available: true
+      ) {
+        totalCount
+        nodes {
+          isAvailable
+          quantityAvailable
+          distance {
+            value
+            unit
+          }
+          location {
+            name
+            pickupEtaTranslated
+            address {
+              address1
+              city
+              zoneCode
+              country
+              postalCode
+            }
+          }
+        }
+        pageInfo {
+          startCursor
+          endCursor
+          hasNextPage
+        }
+      }
+    }
+  }
+`
 
 export interface ShopCatalogClientOptions {
   fetch?: FetchLike
@@ -128,6 +184,46 @@ export interface OrderSearchInput {
   dateTo?: string
 }
 
+export type LocationDistanceUnit = 'MILES' | 'KILOMETERS'
+
+export interface LocationsInput {
+  shopId: string
+  variantId: string
+  limit?: number
+  cursor?: string
+  nearAddress: { country: string; region?: string; city?: string; postalCode?: string }
+  nearCoordinate?: { latitude: number; longitude: number }
+  maxDistance?: { value: number; unit: LocationDistanceUnit }
+}
+
+export interface LocationsResult {
+  variantId: string
+  possiblePickupLocationsV2: {
+    totalCount?: number | null
+    nodes: Array<{
+      isAvailable: boolean
+      quantityAvailable: number
+      distance?: { value: number | string; unit: LocationDistanceUnit } | null
+      location: {
+        name: string
+        pickupEtaTranslated?: string | null
+        address?: {
+          address1?: string | null
+          city?: string | null
+          zoneCode?: string | null
+          country?: string | null
+          postalCode?: string | null
+        } | null
+      }
+    }>
+    pageInfo: {
+      startCursor?: string | null
+      endCursor?: string | null
+      hasNextPage: boolean
+    }
+  }
+}
+
 export class ShopCatalogClient {
   private readonly fetchImpl: FetchLike
   private readonly auth: AuthClient
@@ -172,6 +268,46 @@ export class ShopCatalogClient {
   async getProduct(input: CatalogGetProductInput): Promise<unknown> {
     const catalog = await this.catalogInput(input)
     return this.callCatalogMcp('get_product', { catalog })
+  }
+
+  async locations(input: LocationsInput): Promise<LocationsResult> {
+    const variables = locationsVariables(input)
+    const accessToken = await this.requireAccessToken()
+    const response = await this.authenticatedShopFetch(SHOP_GRAPHQL_URL, {
+      accessToken,
+      label: 'Fetch pickup locations',
+      init: {
+        method: 'POST',
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          operationName: 'ShopCliLocations',
+          query: LOCATIONS_QUERY,
+          variables,
+        }),
+      },
+    })
+    const json = await parseJsonResponse<{
+      data?: {
+        locationSpecificStorefrontProductVariant?: LocationsResult | null
+      } | null
+      errors?: Array<{ message?: string }>
+    }>(response, 'Fetch pickup locations')
+    if (json.errors?.length) {
+      const messages = json.errors.map((error) => error.message).filter(Boolean)
+      throw new ShopCliError(
+        messages.length > 0
+          ? `Locations query failed: ${messages.join('; ')}`
+          : 'Locations query failed',
+        { details: json.errors },
+      )
+    }
+    const variant = json.data?.locationSpecificStorefrontProductVariant
+    if (!variant) {
+      throw new ShopCliError(
+        'Pickup inventory was not found for this merchant and variant. Verify the merchant and exact variant from catalog results.',
+      )
+    }
+    return variant
   }
 
   async createCheckout(input: CheckoutCreateInput): Promise<unknown> {
@@ -536,10 +672,17 @@ export class ShopCatalogClient {
 
   private async authenticatedShopFetch(
     url: string,
-    options: { accessToken: string; label: string; deviceId?: string },
+    options: {
+      accessToken: string
+      label: string
+      deviceId?: string
+      init?: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> }
+    },
   ): Promise<Response> {
     const buildInit = (accessToken: string): RequestInit => ({
+      ...options.init,
       headers: {
+        ...options.init?.headers,
         Accept: 'application/json',
         Authorization: `Bearer ${accessToken}`,
         ...(options.deviceId ? { 'x-device-id': options.deviceId } : {}),
@@ -673,6 +816,86 @@ function selectInstrument(instrument: JsonObject): JsonObject {
 function normalizeVariantGid(variantId: string): string {
   if (variantId.startsWith('gid://')) return variantId
   return `gid://shopify/ProductVariant/${variantId}`
+}
+
+function locationsVariables(input: LocationsInput): JsonObject {
+  const first = input.limit ?? 15
+  if (!Number.isInteger(first) || first < 1 || first > 50) {
+    throw new ShopCliError('Pickup location limit must be an integer from 1 to 50')
+  }
+
+  const country = input.nearAddress?.country.trim().toUpperCase()
+  if (!country || !/^[A-Z]{2}$/.test(country)) {
+    throw new ShopCliError('Pickup address country must be an ISO 3166-1 alpha-2 code')
+  }
+  const city = trimmedValue(input.nearAddress.city)
+  const postalCode = trimmedValue(input.nearAddress.postalCode)
+  if (!city && !postalCode) {
+    throw new ShopCliError('Pickup address requires a city or postal code')
+  }
+  const mailingAddress: JsonObject = {
+    country,
+    ...(trimmedValue(input.nearAddress.region)
+      ? { zoneCode: trimmedValue(input.nearAddress.region) }
+      : {}),
+    ...(city ? { city } : {}),
+    ...(postalCode ? { postalCode } : {}),
+  }
+
+  if (input.nearCoordinate) {
+    assertFiniteRange('Latitude', input.nearCoordinate.latitude, -90, 90)
+    assertFiniteRange('Longitude', input.nearCoordinate.longitude, -180, 180)
+  }
+  if (input.maxDistance) {
+    if (!Number.isFinite(input.maxDistance.value) || input.maxDistance.value <= 0) {
+      throw new ShopCliError('Maximum distance must be a positive number')
+    }
+    if (!['MILES', 'KILOMETERS'].includes(input.maxDistance.unit)) {
+      throw new ShopCliError('Distance unit must be MILES or KILOMETERS')
+    }
+  }
+
+  return {
+    brokerId: normalizeLocationBrokerId(input.shopId),
+    variantId: normalizeLocationVariantGid(input.variantId),
+    first,
+    ...(trimmedValue(input.cursor) ? { after: trimmedValue(input.cursor) } : {}),
+    mailingAddress,
+    ...(input.nearCoordinate
+      ? { pickupCoordinate: input.nearCoordinate }
+      : { pickupAddress: mailingAddress }),
+    ...(input.maxDistance ? { maxDistance: input.maxDistance } : {}),
+  }
+}
+
+function normalizeLocationBrokerId(shopId: string): string {
+  const trimmed = shopId.trim()
+  if (/^\d+$/.test(trimmed)) return trimmed
+  const gid = trimmed.match(/^gid:\/\/shopify\/Shop\/(\d+)$/)
+  if (gid) return gid[1]
+  throw new ShopCliError(
+    `Invalid Shop ID "${shopId}". Use a numeric ID or gid://shopify/Shop/<id>.`,
+  )
+}
+
+function normalizeLocationVariantGid(variantId: string): string {
+  const trimmed = variantId.trim()
+  if (/^\d+$/.test(trimmed)) return `gid://shopify/ProductVariant/${trimmed}`
+  if (/^gid:\/\/shopify\/ProductVariant\/\d+$/.test(trimmed)) return trimmed
+  throw new ShopCliError(
+    `Invalid variant ID "${variantId}". Use a numeric ID or gid://shopify/ProductVariant/<id>.`,
+  )
+}
+
+function assertFiniteRange(label: string, value: number, min: number, max: number): void {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new ShopCliError(`${label} must be between ${min} and ${max}`)
+  }
+}
+
+function trimmedValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
 }
 
 // `shop search` renders catalog IDs in short form (the gid:// prefix stripped to
