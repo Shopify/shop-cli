@@ -1,10 +1,21 @@
+import { createRequire } from 'node:module'
+
+function readPackageVersion(): string {
+  const packageJson = createRequire(import.meta.url)('../package.json') as { version?: unknown }
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error('package.json is missing a valid "version" field')
+  }
+  return packageJson.version
+}
+
 export const CLIENT_ID = '5c733ab2-1903-400a-891e-7ba20c09e2a3'
 export const DEFAULT_AGENT_NAME = 'Shop CLI'
 export const DEFAULT_COUNTRY = 'US'
 export const DEFAULT_PROFILE_URL =
   'https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json'
 export const GLOBAL_CATALOG_MCP_URL = 'https://catalog.shopify.com/api/ucp/mcp'
-export const CLI_VERSION = '0.1.0'
+// Changesets updates package.json, so use it as the single source of truth.
+export const CLI_VERSION = readPackageVersion()
 export const USER_AGENT = `shop-cli/${CLI_VERSION}`
 // Authenticated global-catalog access uses a brokered RFC 8693 token exchange:
 // audience=api.shopify.com + requested_token_type=...access_token returns a
