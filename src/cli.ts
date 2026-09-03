@@ -4,12 +4,14 @@ import { extname } from 'node:path'
 import { Command } from 'commander'
 
 import { AuthClient } from './auth.js'
-import { CLI_VERSION, COUNTRY_ACCOUNT, DEFAULT_COUNTRY } from './constants.js'
+import { CLI_VERSION, COUNTRY_ACCOUNT, DEFAULT_COUNTRY, GLOBAL_CATALOG_MCP_URL, UCP_VERSION } from './constants.js'
 import { toErrorMessage } from './errors.js'
 import { renderCatalogResult, renderCheckoutMessages } from './render.js'
 import { ShopCatalogClient } from './shop-client.js'
+import { withUserAgent } from './http.js'
 import { clearStoredAuth, KeytarSecretStore, MemorySecretStore, setCountry } from './storage.js'
 import type { FetchLike, SecretStore } from './types.js'
+import { checkUcpVersion } from './ucp-version.js'
 
 export interface CliDependencies {
   fetch?: FetchLike
@@ -38,7 +40,7 @@ export function createProgram(deps: CliDependencies = {}): Command {
   program
     .name('shop')
     .description('Shop personal shopping CLI for catalog search, auth, checkout, and order search')
-    .version(CLI_VERSION)
+    .version(`${CLI_VERSION} (UCP ${UCP_VERSION})`)
     .option('--country <code>', 'Buyer country for this call (catalog context signal, not a ships-to filter). Transient; use `shop config set-country` to persist a default.', DEFAULT_COUNTRY)
     .option('--profile-url <url>', 'UCP agent profile URL for global catalog calls')
     .option('--memory-store', 'Use in-memory token storage for tests and dry runs')
@@ -384,6 +386,22 @@ export function createProgram(deps: CliDependencies = {}): Command {
       })
     })
 
+  program
+    .command('version')
+    .description('Print the CLI version and the UCP release it speaks; --check compares that release against a server manifest')
+    .option('--check', 'Fetch /.well-known/ucp from the global catalog (or --shop-domain) and report whether this CLI is current, outdated, or unsupported')
+    .option('--shop-domain <domain>', 'Merchant domain to check instead of the global catalog, e.g. example.myshopify.com')
+    .action(async (opts: { check?: boolean; shopDomain?: string }) => {
+      await runAction({ stdout, stderr, exit }, async () => {
+        const result: Record<string, unknown> = { cli: CLI_VERSION, ucp: UCP_VERSION }
+        if (opts.check || opts.shopDomain) {
+          const host = opts.shopDomain ?? new URL(GLOBAL_CATALOG_MCP_URL).host
+          result.check = await checkUcpVersion(withUserAgent(deps.fetch ?? fetch), host)
+        }
+        return result
+      })
+    })
+
   return program
 }
 
@@ -410,6 +428,7 @@ function explicitCountry(program: Command): string | undefined {
 function resolveClient(deps: CliDependencies, program: Command): ShopCatalogClient {
   const globals = program.optsWithGlobals<GlobalOptions>()
   const store = resolveStore(deps, globals)
+  const stderr = deps.stderr ?? process.stderr
   // Only treat --country as an explicit override when it was actually passed on the CLI;
   // otherwise leave it undefined so the client falls back to the stored preference, then
   // DEFAULT_COUNTRY. The default value of the option must never override a stored country.
@@ -418,6 +437,7 @@ function resolveClient(deps: CliDependencies, program: Command): ShopCatalogClie
     store,
     profileUrl: globals.profileUrl,
     country: explicitCountry(program),
+    onNotice: (message) => stderr.write(`# Notice\n\n${message}\n\n`),
   })
 }
 

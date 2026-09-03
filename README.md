@@ -42,6 +42,7 @@ shop orders search --type recent
 - `shop checkout` — `create`, `update`, and `complete` a UCP checkout on the merchant domain (`complete` requires `--confirm`).
 - `shop orders search` — search recent orders, tracking, order info, returns, and reorder candidates.
 - `shop config` — persist CLI preferences such as a default country.
+- `shop version` — print the CLI version and the UCP release it speaks; `--check` compares that release against the catalog's (or a merchant's) `/.well-known/ucp` manifest and says whether to update.
 
 Run `shop <command> --help` for the flags on any command, and see the [Shop skill](https://shop.app/SKILL.md) for the full reference and shopping workflow.
 
