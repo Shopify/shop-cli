@@ -1,5 +1,11 @@
 # @shopify/shop-cli
 
+## 0.1.3
+
+### Patch Changes
+
+- ed71a90: Fix `shop --version` and the User-Agent header reporting a stale hard-coded version.
+
 ## 0.1.2
 
 ### Patch Changes
