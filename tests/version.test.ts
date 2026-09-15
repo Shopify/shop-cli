@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
 import { createProgram } from '../src/cli.js'
-import { USER_AGENT } from '../src/constants.js'
+import { UCP_VERSION, USER_AGENT } from '../src/constants.js'
 import { expect } from './harness.js'
 
 const packageJson = JSON.parse(
@@ -15,8 +15,8 @@ describe('version metadata', () => {
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+/)
   })
 
-  it('uses the package version for the CLI', () => {
-    expect(createProgram().version()).toBe(packageJson.version)
+  it('reports the package version and the pinned UCP release for --version', () => {
+    expect(createProgram().version()).toBe(`${packageJson.version} (UCP ${UCP_VERSION})`)
   })
 
   it('uses the package version for the User-Agent', () => {

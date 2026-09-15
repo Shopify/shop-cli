@@ -23,6 +23,13 @@ import {
 import { AuthClient } from './auth.js'
 import { getCountry, getOrCreateDeviceId } from './storage.js'
 import type { FetchLike, JsonObject, SecretStore } from './types.js'
+import {
+  checkUcpVersion,
+  describeMcpError,
+  isUnknownToolError,
+  negotiatedVersionNotice,
+  unknownToolGuidance,
+} from './ucp-version.js'
 
 // Maps a CatalogSearchInput field to its exact `filters.attributes[].name`
 // display name, as recognized by the catalog API (shop/world#792867):
@@ -41,6 +48,10 @@ export interface ShopCatalogClientOptions {
   profileUrl?: string
   country?: string
   auth?: AuthClient
+  // Receives non-fatal notices (e.g. a server negotiated a different UCP release
+  // than the one this CLI speaks). The CLI routes these to stderr so stdout
+  // stays clean JSON/markdown.
+  onNotice?: (message: string) => void
 }
 
 export interface CatalogSearchInput {
@@ -139,6 +150,9 @@ export class ShopCatalogClient {
   // Cached global-catalog exchange JWT (session/in-memory only). Present only
   // when the buyer is signed in; absent means we search the catalog unauthenticated.
   private catalogToken?: string
+  // host|version pairs already reported through onNotice, so a multi-call flow
+  // (create then complete checkout) mentions each mismatch once.
+  private readonly reportedVersions = new Set<string>()
 
   constructor(private readonly options: ShopCatalogClientOptions) {
     const baseFetch = options.fetch ?? fetch
@@ -433,8 +447,36 @@ export class ShopCatalogClient {
       }),
     })
     const json = await parseJsonResponse<JsonObject>(response, `Call ${toolName}`)
-    if (json.error) throw new ShopCliError(`MCP ${toolName} returned an error`, { details: json.error })
+    if (json.error) throw await this.mcpError(endpoint, toolName, json.error)
+    this.noteNegotiatedVersion(endpoint, toolName, json)
     return json
+  }
+
+  // Turn a JSON-RPC error into an actionable message. "Tool not found" for a
+  // tool this CLI is built against almost always means the server dropped the
+  // UCP release named in our agent profile, so confirm against the host's
+  // /.well-known/ucp manifest (non-fatal) and say how to fix it.
+  private async mcpError(endpoint: string, toolName: string, error: unknown): Promise<ShopCliError> {
+    const detail = describeMcpError(error)
+    let message = `MCP ${toolName} returned an error${detail ? `: ${detail}` : ''}`
+    if (isUnknownToolError(error)) {
+      const check = await checkUcpVersion(this.fetchImpl, hostOf(endpoint))
+      message = `${message}. ${unknownToolGuidance(check)}`
+      // The manifest check only vouches for the release this build pins; an
+      // overridden profile may declare a release the server has since dropped.
+      if (isCatalogTool(toolName) && this.options.profileUrl) {
+        message = `${message} A custom --profile-url is in use (${this.options.profileUrl}); the server may have dropped the UCP release that profile declares.`
+      }
+    }
+    return new ShopCliError(message, { details: error })
+  }
+
+  private noteNegotiatedVersion(endpoint: string, toolName: string, json: JsonObject): void {
+    if (!this.options.onNotice) return
+    const notice = negotiatedVersionNotice(json, toolName, hostOf(endpoint))
+    if (!notice || this.reportedVersions.has(notice.key)) return
+    this.reportedVersions.add(notice.key)
+    this.options.onNotice(notice.message)
   }
 
   // Global catalog read calls. When the buyer is signed in we attach an
@@ -761,6 +803,14 @@ function pickString(...candidates: unknown[]): string | undefined {
 
 function isCatalogTool(toolName: string): boolean {
   return toolName === 'search_catalog' || toolName === 'lookup_catalog' || toolName === 'get_product'
+}
+
+function hostOf(endpoint: string): string {
+  try {
+    return new URL(endpoint).host
+  } catch {
+    return endpoint
+  }
 }
 
 function isPlainObject(value: unknown): value is JsonObject {

@@ -105,7 +105,7 @@ Create with line items, or pass a checkout body that already contains a `cart_id
     "arguments": {
       "meta": {
         "ucp-agent": {
-          "profile": "https://shopify.dev/ucp/agent-profiles/2026-04-08/personal_agent.json"
+          "profile": "https://shopify.dev/ucp/agent-profiles/2026-08-25/personal_agent.json"
         }
       },
       "checkout": {
@@ -125,6 +125,7 @@ Create with line items, or pass a checkout body that already contains a `cart_id
               "destinations": [
                 {
                   "id": "dest-1",
+                  "type": "shipping_address",
                   "first_name": "Jane",
                   "last_name": "Doe",
                   "street_address": "131 Greene St",
@@ -176,7 +177,7 @@ it did not complete — do not retry without re-verifying.
     "arguments": {
       "meta": {
         "ucp-agent": {
-          "profile": "https://shopify.dev/ucp/agent-profiles/2026-04-08/personal_agent.json"
+          "profile": "https://shopify.dev/ucp/agent-profiles/2026-08-25/personal_agent.json"
         },
         "idempotency-key": "<unique_key_for_purchase_intent>"
       },
@@ -216,7 +217,7 @@ Use `update_checkout` with the checkout ID from create and only the fields that 
     "arguments": {
       "meta": {
         "ucp-agent": {
-          "profile": "https://shopify.dev/ucp/agent-profiles/2026-04-08/personal_agent.json"
+          "profile": "https://shopify.dev/ucp/agent-profiles/2026-08-25/personal_agent.json"
         }
       },
       "id": "<checkout_id>",

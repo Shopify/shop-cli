@@ -18,6 +18,14 @@ shop --help
 
 To upgrade: `pnpm add --global @shopify/shop-cli@latest` (or `npm install --global @shopify/shop-cli@latest`). Uninstall: `pnpm rm -g @shopify/shop-cli` (or `npm rm -g @shopify/shop-cli`).
 
+**Stay on a supported UCP release.** `shop --version` prints the CLI version and the UCP release it speaks, e.g. `0.1.2 (UCP 2026-08-25)`. The catalog and merchants drop older releases over time, and a stale CLI fails with errors like `Tool not found: search_catalog`. Run `shop version --check` once at the start of a shopping session, and again whenever a call fails with "Tool not found", then act on `check.status`:
+- `current` — nothing to do.
+- `outdated` — still works; tell the user an update is available and continue.
+- `unsupported` — stop and ask the user to upgrade (command above) before shopping.
+- `unknown` — the manifest could not be read; continue, but upgrade if calls fail with "Tool not found".
+
+Add `--shop-domain <merchant>` to check a specific merchant before checkout. A `# Notice` on stderr during a call means that server negotiated a different UCP release than the CLI asked for; it is informational, not an error.
+
 **Reference files:**
 - [catalog-mcp.md](references/catalog-mcp.md) — direct catalog MCP calls + manual token exchange
 - [direct-api.md](references/direct-api.md) — auth, checkout, and orders API details
