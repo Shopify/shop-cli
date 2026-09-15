@@ -42,7 +42,7 @@ Every tool call includes:
     "arguments": {
       "meta": {
         "ucp-agent": {
-          "profile": "https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json"
+          "profile": "https://shopify.dev/ucp/agent-profiles/2026-08-25/valid-with-capabilities.json"
         }
       },
       "catalog": {}
@@ -65,7 +65,7 @@ Every tool call includes:
     "arguments": {
       "meta": {
         "ucp-agent": {
-          "profile": "https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json"
+          "profile": "https://shopify.dev/ucp/agent-profiles/2026-08-25/valid-with-capabilities.json"
         }
       },
       "catalog": {
@@ -179,7 +179,7 @@ Use `lookup_catalog` for known product or variant IDs.
     "arguments": {
       "meta": {
         "ucp-agent": {
-          "profile": "https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json"
+          "profile": "https://shopify.dev/ucp/agent-profiles/2026-08-25/valid-with-capabilities.json"
         }
       },
       "catalog": {
@@ -208,7 +208,7 @@ Use `get_product` to inspect options, availability, selected variants, seller do
     "arguments": {
       "meta": {
         "ucp-agent": {
-          "profile": "https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json"
+          "profile": "https://shopify.dev/ucp/agent-profiles/2026-08-25/valid-with-capabilities.json"
         }
       },
       "catalog": {

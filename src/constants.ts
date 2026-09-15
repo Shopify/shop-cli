@@ -11,8 +11,12 @@ function readPackageVersion(): string {
 export const CLIENT_ID = '5c733ab2-1903-400a-891e-7ba20c09e2a3'
 export const DEFAULT_AGENT_NAME = 'Shop CLI'
 export const DEFAULT_COUNTRY = 'US'
-export const DEFAULT_PROFILE_URL =
-  'https://shopify.dev/ucp/agent-profiles/2026-04-08/valid-with-capabilities.json'
+// UCP release the CLI speaks. Both agent profiles below are pinned to it, so
+// bump this one constant when moving to a newer release.
+export const UCP_VERSION = '2026-08-25'
+export const AGENT_PROFILES_BASE_URL = `https://shopify.dev/ucp/agent-profiles/${UCP_VERSION}`
+// Profile sent with global catalog calls (search/lookup/get_product).
+export const DEFAULT_PROFILE_URL = `${AGENT_PROFILES_BASE_URL}/valid-with-capabilities.json`
 export const GLOBAL_CATALOG_MCP_URL = 'https://catalog.shopify.com/api/ucp/mcp'
 // Changesets updates package.json, so use it as the single source of truth.
 export const CLI_VERSION = readPackageVersion()
@@ -34,5 +38,5 @@ export const COUNTRY_ACCOUNT = 'country'
 // (emits the sign-in URL) and `auth poll` (exchanges + stores tokens).
 export const PENDING_DEVICE_AUTH_ACCOUNT = 'pending_device_auth'
 export const AUTH_SCOPES = 'openid email personal_agent'
-export const UCP_PROFILE =
-  'https://shopify.dev/ucp/agent-profiles/2026-04-08/personal_agent.json'
+// Profile sent with merchant checkout calls (create/update/complete_checkout).
+export const UCP_PROFILE = `${AGENT_PROFILES_BASE_URL}/personal_agent.json`
