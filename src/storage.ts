@@ -7,52 +7,114 @@ import {
   SHOP_AGENT_SERVICE,
 } from './constants.js'
 import type { PendingDeviceAuth, SecretStore } from './types.js'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
-type KeytarApi = Pick<typeof import('keytar'), 'getPassword' | 'setPassword' | 'deletePassword'>
+export type SecretBackend = 'keychain' | 'secret-tool' | 'file'
 
-export class KeytarSecretStore implements SecretStore {
-  private keytarPromise: Promise<KeytarApi | null>
+// Zero-native-dependency secret store. Resolution order:
+//   1. SHOP_CLI_SECRET_BACKEND env override (keychain | secret-tool | file)
+//   2. macOS Keychain via the `security` CLI (always present on darwin)
+//   3. libsecret via the `secret-tool` CLI (Linux desktops with a secret service)
+//   4. JSON file at SHOP_CLI_SECRETS_PATH or ~/.shop-cli/secrets.json (0600),
+//      with a one-time stderr notice when reached implicitly
+export class PortableSecretStore implements SecretStore {
+  private backendPromise: Promise<SecretBackend> | undefined
+  private warned = false
+  // The file backend is read-modify-write on a single JSON document, so
+  // concurrent operations (e.g. clearStoredAuth's parallel deletes) must be
+  // serialised or they race on the temp file and lose updates.
+  private fileQueue: Promise<unknown> = Promise.resolve()
 
-  constructor(private readonly service = SHOP_AGENT_SERVICE) {
-    this.keytarPromise = import('keytar')
-      .then((mod) => {
-        const candidate = ((mod as { default?: unknown }).default ?? mod) as Partial<KeytarApi>
-        const usable =
-          typeof candidate.getPassword === 'function' &&
-          typeof candidate.setPassword === 'function' &&
-          typeof candidate.deletePassword === 'function'
-        return usable ? (candidate as KeytarApi) : null
-      })
-      .catch(() => null)
-  }
+  constructor(
+    private readonly service = SHOP_AGENT_SERVICE,
+    private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly platform: NodeJS.Platform = process.platform,
+  ) {}
 
   async get(account: string): Promise<string | null> {
-    const keytar = await this.keytarPromise
-    if (keytar) return keytar.getPassword(this.service, account)
-    return this.macGet(account)
+    switch (await this.backend()) {
+      case 'keychain':
+        return this.macGet(account)
+      case 'secret-tool':
+        return this.linuxGet(account)
+      case 'file':
+        return this.fileGet(account)
+    }
   }
 
   async set(account: string, value: string): Promise<void> {
-    const keytar = await this.keytarPromise
-    if (keytar) {
-      await keytar.setPassword(this.service, account, value)
-      return
+    switch (await this.backend()) {
+      case 'keychain':
+        return this.macSet(account, value)
+      case 'secret-tool':
+        return this.linuxSet(account, value)
+      case 'file':
+        return this.fileSet(account, value)
     }
-    await this.macSet(account, value)
   }
 
   async delete(account: string): Promise<boolean> {
-    const keytar = await this.keytarPromise
-    if (keytar) return keytar.deletePassword(this.service, account)
-    return this.macDelete(account)
+    switch (await this.backend()) {
+      case 'keychain':
+        return this.macDelete(account)
+      case 'secret-tool':
+        return this.linuxDelete(account)
+      case 'file':
+        return this.fileDelete(account)
+    }
   }
 
+  private backend(): Promise<SecretBackend> {
+    this.backendPromise ??= this.resolveBackend()
+    return this.backendPromise
+  }
+
+  private async resolveBackend(): Promise<SecretBackend> {
+    const override = this.env.SHOP_CLI_SECRET_BACKEND?.toLowerCase()
+    if (override === 'keychain' || override === 'secret-tool' || override === 'file') {
+      return override
+    }
+    if (override) {
+      process.stderr.write(
+        `shop-cli: unknown SHOP_CLI_SECRET_BACKEND "${override}" (expected keychain | secret-tool | file); auto-detecting instead.\n`,
+      )
+    }
+    if (this.platform === 'darwin') return 'keychain'
+    if (await this.hasSecretTool()) return 'secret-tool'
+    this.warnFileFallback()
+    return 'file'
+  }
+
+  private async hasSecretTool(): Promise<boolean> {
+    try {
+      // Exit status is irrelevant; ENOENT (not installed) is what rejects here
+      // with no stdout/stderr side effects. A missing entry exits 1 but proves
+      // the binary and a secret service both exist.
+      await execFileAsync('secret-tool', ['lookup', 'service', this.service, 'account', '__probe__'])
+      return true
+    } catch (error) {
+      return !isMissingBinaryError(error)
+    }
+  }
+
+  private warnFileFallback(): void {
+    if (this.warned) return
+    this.warned = true
+    process.stderr.write(
+      `shop-cli: no OS keychain available; storing secrets in ${this.filePath()} (mode 0600). Set SHOP_CLI_SECRET_BACKEND=file to acknowledge and silence this notice.\n`,
+    )
+  }
+
+  // --- macOS Keychain via `security` ---
+
   private async macGet(account: string): Promise<string | null> {
-    assertDarwinFallback()
     try {
       const { stdout } = await execFileAsync('security', [
         'find-generic-password',
@@ -69,7 +131,6 @@ export class KeytarSecretStore implements SecretStore {
   }
 
   private async macSet(account: string, value: string): Promise<void> {
-    assertDarwinFallback()
     const args = ['add-generic-password', '-U', '-s', this.service, '-a', account, '-w', value]
     try {
       await execFileAsync('security', args)
@@ -81,7 +142,6 @@ export class KeytarSecretStore implements SecretStore {
   }
 
   private async macDelete(account: string): Promise<boolean> {
-    assertDarwinFallback()
     try {
       await execFileAsync('security', ['delete-generic-password', '-s', this.service, '-a', account])
       return true
@@ -89,6 +149,123 @@ export class KeytarSecretStore implements SecretStore {
       return false
     }
   }
+
+  // --- Linux secret service via `secret-tool` ---
+
+  private async linuxGet(account: string): Promise<string | null> {
+    try {
+      const { stdout } = await execFileAsync('secret-tool', [
+        'lookup',
+        'service',
+        this.service,
+        'account',
+        account,
+      ])
+      return stdout.replace(/\n$/, '') || null
+    } catch {
+      return null
+    }
+  }
+
+  private async linuxSet(account: string, value: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('secret-tool', [
+        'store',
+        `--label=${this.service} ${account}`,
+        'service',
+        this.service,
+        'account',
+        account,
+      ])
+      let stderr = ''
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      child.on('error', reject)
+      child.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error(`secret-tool store failed (exit ${code}): ${stderr.trim()}`))
+      })
+      child.stdin.end(value)
+    })
+  }
+
+  private async linuxDelete(account: string): Promise<boolean> {
+    try {
+      await execFileAsync('secret-tool', ['clear', 'service', this.service, 'account', account])
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // --- File fallback ---
+
+  private filePath(): string {
+    return this.env.SHOP_CLI_SECRETS_PATH ?? join(homedir(), '.shop-cli', 'secrets.json')
+  }
+
+  private async readFileStore(): Promise<Record<string, string>> {
+    try {
+      const raw = await readFile(this.filePath(), 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, string>
+      }
+      return {}
+    } catch {
+      return {}
+    }
+  }
+
+  private async writeFileStore(values: Record<string, string>): Promise<void> {
+    const path = this.filePath()
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+    const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
+    await writeFile(tmp, `${JSON.stringify(values, null, 2)}\n`, { mode: 0o600 })
+    await rename(tmp, path)
+    await chmod(path, 0o600)
+  }
+
+  private withFileLock<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.fileQueue.then(operation, operation)
+    this.fileQueue = run.catch(() => undefined)
+    return run
+  }
+
+  private fileGet(account: string): Promise<string | null> {
+    return this.withFileLock(async () => {
+      const values = await this.readFileStore()
+      return values[account] ?? null
+    })
+  }
+
+  private fileSet(account: string, value: string): Promise<void> {
+    return this.withFileLock(async () => {
+      const values = await this.readFileStore()
+      values[account] = value
+      await this.writeFileStore(values)
+    })
+  }
+
+  private fileDelete(account: string): Promise<boolean> {
+    return this.withFileLock(async () => {
+      const values = await this.readFileStore()
+      if (!(account in values)) return false
+      delete values[account]
+      await this.writeFileStore(values)
+      return true
+    })
+  }
+}
+
+function isMissingBinaryError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  )
 }
 
 function isExistingKeychainItemError(error: unknown): boolean {
@@ -179,12 +356,4 @@ export async function getCountry(store: SecretStore, fallback: string): Promise<
 
 export async function setCountry(store: SecretStore, country: string): Promise<void> {
   await store.set(COUNTRY_ACCOUNT, country.toUpperCase())
-}
-
-function assertDarwinFallback(): void {
-  if (process.platform !== 'darwin') {
-    throw new Error(
-      'OS secret storage is unavailable. Install/build keytar or run in an environment with macOS Keychain support.',
-    )
-  }
 }
