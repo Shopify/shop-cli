@@ -9,10 +9,9 @@ import {
 import type { PendingDeviceAuth, SecretStore } from './types.js'
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, readFile, rename, rmdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { setTimeout } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -28,6 +27,7 @@ export type SecretBackend = 'keychain' | 'secret-tool' | 'file'
 export class PortableSecretStore implements SecretStore {
   private backendPromise: Promise<SecretBackend> | undefined
   private warned = false
+  private fileQueue: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly service = SHOP_AGENT_SERVICE,
@@ -224,34 +224,17 @@ export class PortableSecretStore implements SecretStore {
 
   private async writeFileStore(values: Record<string, string>): Promise<void> {
     const path = this.filePath()
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
     const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
     await writeFile(tmp, `${JSON.stringify(values, null, 2)}\n`, { mode: 0o600 })
     await rename(tmp, path)
     await chmod(path, 0o600)
   }
 
-  private async withFileLock<T>(operation: () => Promise<T>): Promise<T> {
-    const lockPath = `${this.filePath()}.lock`
-    await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 })
-    const deadline = performance.now() + 5_000
-    let acquired = false
-    while (!acquired && performance.now() < deadline) {
-      try {
-        await mkdir(lockPath, { mode: 0o700 })
-        acquired = true
-      } catch (error) {
-        if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error
-        await setTimeout(25)
-      }
-    }
-    if (!acquired) {
-      throw new Error(`Timed out waiting for credential-store lock: ${lockPath}`)
-    }
-    try {
-      return await operation()
-    } finally {
-      await rmdir(lockPath)
-    }
+  private withFileLock<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.fileQueue.then(operation, operation)
+    this.fileQueue = run.catch(() => undefined)
+    return run
   }
 
   private fileGet(account: string): Promise<string | null> {

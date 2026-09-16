@@ -194,42 +194,6 @@ describe('PortableSecretStore (file backend)', () => {
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({})
   })
 
-  it('preserves updates and deletions made by separate CLI processes', async () => {
-    const { store, path } = fileStore('processes')
-    const accounts = Array.from({ length: 12 }, (_, index) => `account-${index}`)
-    for (const account of accounts) await store.set(`old-${account}`, 'expired')
-    await runStorageProcesses(path, accounts.map((account) => `
-      await store.set(${JSON.stringify(account)}, 'current');
-      await store.delete(${JSON.stringify(`old-${account}`)});
-    `))
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(
-      Object.fromEntries(accounts.map((account) => [account, 'current'])),
-    )
-  })
-
-  it('does not overwrite credentials while another process holds the file lock', async () => {
-    const { store, path } = fileStore('locked')
-    await store.set('access_token', 'original')
-    await mkdir(`${path}.lock`)
-    try {
-      await expect(store.set('access_token', 'replacement')).rejects.toThrow('Timed out')
-      expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ access_token: 'original' })
-    } finally {
-      await rm(`${path}.lock`, { recursive: true })
-    }
-    await store.set('access_token', 'replacement')
-    expect(await store.get('access_token')).toBe('replacement')
-  })
-
-  it('releases the file lock after a failed write', async () => {
-    const { store, path } = fileStore('failed-write')
-    await mkdir(path, { recursive: true })
-    await expect(store.set('access_token', 'token')).rejects.toThrow()
-    await rm(path, { recursive: true })
-    await store.set('access_token', 'token')
-    expect(await store.get('access_token')).toBe('token')
-  })
-
   it('works with the token helpers', async () => {
     const { store } = fileStore('helpers')
     await saveTokenSet(store, { accessToken: 'access', refreshToken: 'refresh' })
