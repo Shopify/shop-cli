@@ -8,7 +8,7 @@ Behavioral rules (confirmation, warnings, budget etiquette, security) live in SK
 
 ### Token storage
 
-Use the OS/harness secret store with service `shop-agent` and accounts: `access_token`, `refresh_token`, `device_id`, `country`. Keep checkout JWTs, catalog tokens, buyer IP, and UCP payment tokens in memory only.
+Keep checkout JWTs, catalog tokens, buyer IP, and UCP payment tokens in memory only.
 
 ### Device authorization
 
