@@ -7,7 +7,7 @@ import {
   SHOP_AGENT_SERVICE,
 } from './constants.js'
 import type { PendingDeviceAuth, SecretStore } from './types.js'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, spawn, type ExecFileException } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -89,23 +89,17 @@ export class PortableSecretStore implements SecretStore {
     return 'file'
   }
 
-  private async hasSecretTool(): Promise<boolean> {
-    try {
-      await execFileAsync('secret-tool', ['lookup', 'service', this.service, 'account', '__probe__'], {
-        timeout: 5_000,
-      })
-      return true
-    } catch (error) {
-      return (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 1 &&
-        'stderr' in error &&
-        typeof error.stderr === 'string' &&
-        error.stderr.trim() === ''
+  private hasSecretTool(): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(
+        'secret-tool',
+        ['lookup', 'service', this.service, 'account', '__probe__'],
+        { timeout: 5_000 },
+        (error, _stdout, stderr) => {
+          resolve(isSecretServiceAvailable(error, stderr))
+        },
       )
-    }
+    })
   }
 
   private warnFileFallback(): void {
@@ -261,6 +255,10 @@ export class PortableSecretStore implements SecretStore {
       return true
     })
   }
+}
+
+function isSecretServiceAvailable(error: ExecFileException | null, stderr: string): boolean {
+  return error === null || (error.code === 1 && stderr.trim() === '')
 }
 
 function isExistingKeychainItemError(error: unknown): boolean {
