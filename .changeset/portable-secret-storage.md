@@ -11,7 +11,7 @@ Drop the native `keytar` dependency in favour of a portable secret store, and sh
 3. Linux with a working secret service → `secret-tool`
 4. Otherwise → a `0600` JSON file at `SHOP_CLI_SECRETS_PATH` or `~/.shop-cli/secrets.json` (with a one-time stderr notice when reached implicitly)
 
-The file backend serialises operations so concurrent writes (e.g. `shop auth logout`) cannot race or lose updates. Existing macOS users keep their Keychain entries under the same `shop-agent` service, so no re-login is required.
+The file backend serialises read–modify–write operations across processes and store instances, preventing overlapping writes from losing updates or restoring deleted credentials. Lock acquisition times out rather than writing without a lock; a killed lock holder may require orphaned-lock cleanup as documented in the README. Existing macOS users keep their Keychain entries under the same `shop-agent` service, so no re-login is required.
 
 **Shop skill 1.1.0.** `skill/SKILL.md` is rewritten: sign-in is offered alongside the first results instead of as a blocking step; the channel table is now capability-based (media, plain-text, link buttons, no-image) with a single-message fallback for harnesses that can't send multiple messages per turn; delegated budgets are only mentioned when the user asks; and only a returned checkout `status` of `completed` counts as a purchase. `references/catalog-mcp.md`, `direct-api.md`, `safety.md`, and `legal.md` are merged into a single `references/direct-api.md`, with the safety and legal rules folded into `SKILL.md`.
 

@@ -148,6 +148,8 @@ Backend resolution order:
 
 The file store creates its directory `0700`, writes atomically (temp file + rename), and keeps the file `0600`. It holds the OAuth access/refresh tokens — treat it like an SSH key. On shared machines prefer a real keychain backend or `--memory-store`.
 
+File operations use an exclusive directory lock at `<secrets-path>.lock`, covering the read, modification, and atomic replacement across CLI processes and store instances. Lock acquisition times out after five seconds rather than proceeding unlocked. A process killed while holding the lock can leave that directory behind: stop all CLI processes using this store before removing the orphaned lock directory, then retry. Do not delete the credentials file or remove a lock held by a running process. Locking protects individual storage operations, not an entire multi-command sign-in or sign-out transaction.
+
 ```bash
 SHOP_CLI_SECRET_BACKEND=file shop auth status   # force + acknowledge the file store
 shop --memory-store auth status                 # nothing persisted (per-process)

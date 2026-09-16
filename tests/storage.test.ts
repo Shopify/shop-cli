@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
@@ -21,6 +22,60 @@ function fileStore(name: string, platform: NodeJS.Platform = 'linux'): { store: 
   const path = join(workdir, name, 'secrets.json')
   const env: NodeJS.ProcessEnv = { SHOP_CLI_SECRET_BACKEND: 'file', SHOP_CLI_SECRETS_PATH: path }
   return { store: new PortableSecretStore('shop-agent-test', env, platform), path }
+}
+
+async function runStorageProcesses(path: string | undefined, operations: string[], overrides: NodeJS.ProcessEnv = {}): Promise<string[]> {
+  const children = operations.map((operation) => {
+    const source = `
+      import { PortableSecretStore } from ${JSON.stringify(new URL('../src/storage.js', import.meta.url).href)};
+      const store = new PortableSecretStore('shop-agent-test', process.env, 'linux');
+      process.send('ready');
+      process.once('message', async () => {
+        try {
+          ${operation}
+          process.disconnect();
+        } catch (error) {
+          console.error(error);
+          process.exit(1);
+        }
+      });
+    `
+    const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
+      env: { ...process.env, SHOP_CLI_SECRET_BACKEND: 'file', SHOP_CLI_SECRETS_PATH: path, ...overrides },
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      timeout: 15_000,
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+    const ready = new Promise<void>((resolve, reject) => {
+      child.once('message', () => resolve())
+      child.once('error', reject)
+      child.once('exit', () => reject(new Error('Storage process exited before readiness')))
+    })
+    const done = new Promise<string>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('close', (code) => {
+        if (code === 0) resolve(stdout.trim())
+        else reject(new Error(`Storage process exited ${code}: ${stderr}`))
+      })
+    })
+    return { child, ready, done }
+  })
+  try {
+    const [, results] = await Promise.all([
+      Promise.all(children.map(({ ready }) => ready)).then(() => {
+        for (const { child } of children) child.send('start')
+      }),
+      Promise.all(children.map(({ done }) => done)),
+    ])
+    return results
+  } finally {
+    for (const { child } of children) {
+      if (child.exitCode === null && child.signalCode === null) child.kill()
+    }
+  }
 }
 
 describe('PortableSecretStore (file backend)', () => {
@@ -89,11 +144,14 @@ describe('PortableSecretStore (file backend)', () => {
   })
 
   it('falls back to the default path under the home directory when SHOP_CLI_SECRETS_PATH is unset', async () => {
-    // We only assert on the resolved location; no write is performed against the real home dir.
-    const env: NodeJS.ProcessEnv = { SHOP_CLI_SECRET_BACKEND: 'file' }
-    const store = new PortableSecretStore('shop-agent-test', env, 'linux')
-    // Reading a fresh account from a (probably missing) file must be a clean null.
-    expect(await store.get('__shop_cli_storage_test_probe__')).toBeNull()
+    const home = join(workdir, 'home')
+    const env = { HOME: home, SHOP_CLI_SECRETS_PATH: undefined }
+    await runStorageProcesses(undefined, ['await store.set("access_token", "home-token");'], env)
+    const results = await runStorageProcesses(undefined, ['console.log(await store.get("access_token"));'], env)
+    expect(results).toEqual(['home-token'])
+    expect(JSON.parse(await readFile(join(home, '.shop-cli', 'secrets.json'), 'utf8'))).toEqual({
+      access_token: 'home-token',
+    })
   })
 
   it('serialises concurrent writes so none are lost', async () => {
@@ -105,6 +163,42 @@ describe('PortableSecretStore (file backend)', () => {
     const deleted = await Promise.all(accounts.map((account) => store.delete(account)))
     expect(deleted).toEqual([true, true, true, true, true, true])
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({})
+  })
+
+  it('preserves updates and deletions made by separate CLI processes', async () => {
+    const { store, path } = fileStore('processes')
+    const accounts = Array.from({ length: 12 }, (_, index) => `account-${index}`)
+    for (const account of accounts) await store.set(`old-${account}`, 'expired')
+    await runStorageProcesses(path, accounts.map((account) => `
+      await store.set(${JSON.stringify(account)}, 'current');
+      await store.delete(${JSON.stringify(`old-${account}`)});
+    `))
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(
+      Object.fromEntries(accounts.map((account) => [account, 'current'])),
+    )
+  })
+
+  it('does not overwrite credentials while another process holds the file lock', async () => {
+    const { store, path } = fileStore('locked')
+    await store.set('access_token', 'original')
+    await mkdir(`${path}.lock`)
+    try {
+      await expect(store.set('access_token', 'replacement')).rejects.toThrow('Timed out')
+      expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ access_token: 'original' })
+    } finally {
+      await rm(`${path}.lock`, { recursive: true })
+    }
+    await store.set('access_token', 'replacement')
+    expect(await store.get('access_token')).toBe('replacement')
+  })
+
+  it('releases the file lock after a failed write', async () => {
+    const { store, path } = fileStore('failed-write')
+    await mkdir(path, { recursive: true })
+    await expect(store.set('access_token', 'token')).rejects.toThrow()
+    await rm(path, { recursive: true })
+    await store.set('access_token', 'token')
+    expect(await store.get('access_token')).toBe('token')
   })
 
   it('works with the token helpers', async () => {
