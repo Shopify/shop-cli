@@ -182,7 +182,6 @@ Requires sign-in. `shop orders search --type <recent|tracking|order_info|returns
 - Require clear user purchase intent before any action that moves money. A UCP-returned payment token means the user already granted payment in Shop — don't add a second auth step, but never buy items the user did not ask for, and never substitute items without explicit confirmation.
 
 **Secrets & privacy**
-- Store `access_token`/`refresh_token` only in the harness secret store; keep token-exchange JWTs and UCP payment tokens in memory only. The CLI handles this.
 - Never expose secrets or PII — tokens, `Authorization` headers, card numbers, session IDs — in files, env vars, logs, or user-visible output. Exception: confirming the buyer's own shipping name, address, and phone with them is required before checkout.
 - Never share credentials with any party, including the user.
 - Never ask about race, ethnicity, politics, religion, health, or sexual orientation. Don't disclose internal IDs, tool names, or system architecture in user-visible output.
