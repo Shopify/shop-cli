@@ -9,9 +9,10 @@ import {
 import type { PendingDeviceAuth, SecretStore } from './types.js'
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rename, rmdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { setTimeout } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -27,10 +28,6 @@ export type SecretBackend = 'keychain' | 'secret-tool' | 'file'
 export class PortableSecretStore implements SecretStore {
   private backendPromise: Promise<SecretBackend> | undefined
   private warned = false
-  // The file backend is read-modify-write on a single JSON document, so
-  // concurrent operations (e.g. clearStoredAuth's parallel deletes) must be
-  // serialised or they race on the temp file and lose updates.
-  private fileQueue: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly service = SHOP_AGENT_SERVICE,
@@ -94,13 +91,20 @@ export class PortableSecretStore implements SecretStore {
 
   private async hasSecretTool(): Promise<boolean> {
     try {
-      // Exit status is irrelevant; ENOENT (not installed) is what rejects here
-      // with no stdout/stderr side effects. A missing entry exits 1 but proves
-      // the binary and a secret service both exist.
-      await execFileAsync('secret-tool', ['lookup', 'service', this.service, 'account', '__probe__'])
+      await execFileAsync('secret-tool', ['lookup', 'service', this.service, 'account', '__probe__'], {
+        timeout: 5_000,
+      })
       return true
     } catch (error) {
-      return !isMissingBinaryError(error)
+      return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 1 &&
+        'stderr' in error &&
+        typeof error.stderr === 'string' &&
+        error.stderr.trim() === ''
+      )
     }
   }
 
@@ -220,17 +224,33 @@ export class PortableSecretStore implements SecretStore {
 
   private async writeFileStore(values: Record<string, string>): Promise<void> {
     const path = this.filePath()
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
     const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
     await writeFile(tmp, `${JSON.stringify(values, null, 2)}\n`, { mode: 0o600 })
     await rename(tmp, path)
     await chmod(path, 0o600)
   }
 
-  private withFileLock<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.fileQueue.then(operation, operation)
-    this.fileQueue = run.catch(() => undefined)
-    return run
+  private async withFileLock<T>(operation: () => Promise<T>): Promise<T> {
+    const lockPath = `${this.filePath()}.lock`
+    await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 })
+    const deadline = performance.now() + 5_000
+    while (true) {
+      try {
+        await mkdir(lockPath, { mode: 0o700 })
+        break
+      } catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error
+        if (performance.now() >= deadline) {
+          throw new Error(`Timed out waiting for credential-store lock: ${lockPath}`)
+        }
+        await setTimeout(25)
+      }
+    }
+    try {
+      return await operation()
+    } finally {
+      await rmdir(lockPath)
+    }
   }
 
   private fileGet(account: string): Promise<string | null> {
@@ -257,15 +277,6 @@ export class PortableSecretStore implements SecretStore {
       return true
     })
   }
-}
-
-function isMissingBinaryError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  )
 }
 
 function isExistingKeychainItemError(error: unknown): boolean {
