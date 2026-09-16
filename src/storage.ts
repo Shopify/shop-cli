@@ -234,17 +234,18 @@ export class PortableSecretStore implements SecretStore {
     const lockPath = `${this.filePath()}.lock`
     await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 })
     const deadline = performance.now() + 5_000
-    while (true) {
+    let acquired = false
+    while (!acquired && performance.now() < deadline) {
       try {
         await mkdir(lockPath, { mode: 0o700 })
-        break
+        acquired = true
       } catch (error) {
         if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error
-        if (performance.now() >= deadline) {
-          throw new Error(`Timed out waiting for credential-store lock: ${lockPath}`)
-        }
         await setTimeout(25)
       }
+    }
+    if (!acquired) {
+      throw new Error(`Timed out waiting for credential-store lock: ${lockPath}`)
     }
     try {
       return await operation()
