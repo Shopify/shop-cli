@@ -7,7 +7,7 @@ import {
   SHOP_AGENT_SERVICE,
 } from './constants.js'
 import type { PendingDeviceAuth, SecretStore } from './types.js'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, spawn, type ExecFileException } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -27,9 +27,6 @@ export type SecretBackend = 'keychain' | 'secret-tool' | 'file'
 export class PortableSecretStore implements SecretStore {
   private backendPromise: Promise<SecretBackend> | undefined
   private warned = false
-  // The file backend is read-modify-write on a single JSON document, so
-  // concurrent operations (e.g. clearStoredAuth's parallel deletes) must be
-  // serialised or they race on the temp file and lose updates.
   private fileQueue: Promise<unknown> = Promise.resolve()
 
   constructor(
@@ -92,16 +89,17 @@ export class PortableSecretStore implements SecretStore {
     return 'file'
   }
 
-  private async hasSecretTool(): Promise<boolean> {
-    try {
-      // Exit status is irrelevant; ENOENT (not installed) is what rejects here
-      // with no stdout/stderr side effects. A missing entry exits 1 but proves
-      // the binary and a secret service both exist.
-      await execFileAsync('secret-tool', ['lookup', 'service', this.service, 'account', '__probe__'])
-      return true
-    } catch (error) {
-      return !isMissingBinaryError(error)
-    }
+  private hasSecretTool(): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(
+        'secret-tool',
+        ['lookup', 'service', this.service, 'account', '__probe__'],
+        { timeout: 5_000 },
+        (error, _stdout, stderr) => {
+          resolve(isSecretServiceAvailable(error, stderr))
+        },
+      )
+    })
   }
 
   private warnFileFallback(): void {
@@ -259,13 +257,8 @@ export class PortableSecretStore implements SecretStore {
   }
 }
 
-function isMissingBinaryError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  )
+function isSecretServiceAvailable(error: ExecFileException | null, stderr: string): boolean {
+  return error === null || (error.code === 1 && stderr.trim() === '')
 }
 
 function isExistingKeychainItemError(error: unknown): boolean {

@@ -148,6 +148,8 @@ Backend resolution order:
 
 The file store creates its directory `0700`, writes atomically (temp file + rename), and keeps the file `0600`. It holds the OAuth access/refresh tokens — treat it like an SSH key. On shared machines prefer a real keychain backend or `--memory-store`.
 
+Automatic detection requires a working Secret Service, not just an installed `secret-tool` binary. A clean lookup miss still selects the keyring; connection errors or a probe exceeding five seconds select the file fallback. Explicit backend overrides remain authoritative. Backend selection is recalculated for each process, so consistently headless sessions can reuse the file store without an override. Changing the available service does not migrate credentials between backends; use a consistent `SHOP_CLI_SECRET_BACKEND` when intentionally selecting one.
+
 ```bash
 SHOP_CLI_SECRET_BACKEND=file shop auth status   # force + acknowledge the file store
 shop --memory-store auth status                 # nothing persisted (per-process)
